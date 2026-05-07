@@ -90,6 +90,7 @@ test('sidepanel html exposes phone verification toggle and multi-provider SMS ro
   assert.match(html, /\.\.\/phone-sms\/providers\/registry\.js/);
   assert.match(html, /<option value="hero-sms">HeroSMS<\/option>/);
   assert.match(html, /<option value="5sim">5sim<\/option>/);
+  assert.match(html, /<option value="smsbower">SMSBower<\/option>/);
   assert.match(html, /id="row-hero-sms-country"/);
   assert.match(html, /id="row-hero-sms-country-fallback"/);
   assert.match(html, /id="row-hero-sms-acquire-priority"/);
@@ -481,13 +482,13 @@ const btnTogglePhoneVerificationSection = {
   title: '',
   setAttribute: () => {},
 };
-  const DEFAULT_PHONE_SMS_PROVIDER_ORDER = ['hero-sms', '5sim', 'nexsms'];
+  const DEFAULT_PHONE_SMS_PROVIDER_ORDER = ['hero-sms', '5sim', 'nexsms', 'smsbower'];
   const phoneSmsProviderOrderSelection = [];
   function normalizePhoneSmsProviderOrderValue(value = [], fallbackOrder = DEFAULT_PHONE_SMS_PROVIDER_ORDER) {
     const source = Array.isArray(value) ? value : [];
     const normalized = [...source];
     if (normalized.length) {
-      return normalized.slice(0, 3);
+      return normalized.slice(0, 4);
     }
     if (!Array.isArray(fallbackOrder) || !fallbackOrder.length) {
       return [];
@@ -498,7 +499,7 @@ const btnTogglePhoneVerificationSection = {
         fallbackNormalized.push(provider);
       }
     }
-    return fallbackNormalized.slice(0, 3);
+    return fallbackNormalized.slice(0, 4);
   }
   function resolveNormalizedProviderOrderForRuntime(state = {}) {
     const rawOrder = Array.isArray(state?.phoneSmsProviderOrder) ? state.phoneSmsProviderOrder : [];
@@ -540,6 +541,7 @@ const rowPhoneCodePollMaxRounds = { style: { display: 'none' } };
 const PHONE_SMS_PROVIDER_HERO_SMS = 'hero-sms';
 const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
 const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
 function getSelectedPhoneSmsProvider() { return selectPhoneSmsProvider.value; }
 function isFiveSimProviderSelected() { return getSelectedPhoneSmsProvider() === PHONE_SMS_PROVIDER_FIVE_SIM; }
 function updateHeroSmsPlatformDisplay() {}
@@ -694,6 +696,15 @@ return {
   assert.equal(api.rowNexSmsCountry.style.display, '');
   assert.equal(api.rowNexSmsCountryFallback.style.display, '');
   assert.equal(api.rowNexSmsServiceCode.style.display, '');
+
+  api.setSelectedPhoneSmsProvider('smsbower');
+  api.updatePhoneVerificationSettingsUI();
+  assert.equal(api.rowHeroSmsPlatform.style.display, '');
+  assert.equal(api.rowHeroSmsCountry.style.display, '');
+  assert.equal(api.rowHeroSmsCountryFallback.style.display, '');
+  assert.equal(api.rowHeroSmsAcquirePriority.style.display, '');
+  assert.equal(api.rowHeroSmsApiKey.style.display, '');
+  assert.equal(api.rowHeroSmsMaxPrice.style.display, '');
 });
 
 test('collectSettingsPayload keeps local helper sync enabled while persisting sms toggle state', () => {
@@ -703,8 +714,14 @@ let latestState = {
   contributionMode: false,
   mail2925UseAccountPool: false,
   currentMail2925AccountId: '',
-  fiveSimCountryOrder: ['thailand', 'england'],
-};
+	  fiveSimCountryOrder: ['thailand', 'england'],
+	  smsBowerApiKey: 'bower-key',
+	  smsBowerMaxPrice: '0.09',
+	  smsBowerCountryId: 52,
+	  smsBowerCountryLabel: 'Thailand',
+	  smsBowerCountryFallback: [{ id: 6, label: 'Indonesia' }],
+	  smsBowerServiceCode: 'dr',
+	};
 let cloudflareDomainEditMode = false;
 let cloudflareTempEmailDomainEditMode = false;
 const selectCfDomain = { value: '' };
@@ -800,6 +817,7 @@ const DEFAULT_HERO_SMS_COUNTRY_LABEL = 'Thailand';
 const PHONE_SMS_PROVIDER_HERO_SMS = 'hero-sms';
 const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
 const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO_SMS;
 const DEFAULT_FIVE_SIM_COUNTRY_ID = 'vietnam';
 const DEFAULT_FIVE_SIM_COUNTRY_LABEL = '越南 (Vietnam)';
@@ -807,6 +825,9 @@ const DEFAULT_FIVE_SIM_OPERATOR = 'any';
 const DEFAULT_FIVE_SIM_PRODUCT = 'openai';
 const DEFAULT_NEX_SMS_COUNTRY_ORDER = [1];
 const DEFAULT_NEX_SMS_SERVICE_CODE = 'ot';
+const DEFAULT_SMS_BOWER_COUNTRY_ID = 52;
+const DEFAULT_SMS_BOWER_COUNTRY_LABEL = 'Thailand';
+const DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr';
 const FIVE_SIM_SUPPORTED_COUNTRY_ID_SET = new Set(['indonesia', 'thailand', 'vietnam']);
 const HERO_SMS_SUPPORTED_COUNTRY_ID_SET = new Set(['6', '52', '10']);
 const selectHeroSmsCountry = {
@@ -858,6 +879,7 @@ ${extractFunction('normalizeHeroSmsReuseEnabledValue')}
 ${extractFunction('normalizeHeroSmsAcquirePriority')}
 ${extractFunction('normalizeHeroSmsCountryId')}
 ${extractFunction('normalizeHeroSmsCountryLabel')}
+${extractFunction('normalizeHeroSmsCountryFallbackList')}
 ${extractFunction('getSelectedHeroSmsCountryOption')}
 function syncHeroSmsFallbackSelectionOrderFromSelect() {
   return [{ id: 52, label: 'Thailand' }, { id: 16, label: 'United Kingdom' }];
@@ -891,6 +913,12 @@ return { collectSettingsPayload };
   assert.equal(payload.nexSmsApiKey, 'nex-key');
   assert.deepStrictEqual(payload.nexSmsCountryOrder, [1]);
   assert.equal(payload.nexSmsServiceCode, 'ot');
+  assert.equal(payload.smsBowerApiKey, 'bower-key');
+  assert.equal(payload.smsBowerMaxPrice, '0.09');
+  assert.equal(payload.smsBowerCountryId, 52);
+  assert.equal(payload.smsBowerCountryLabel, 'Thailand');
+  assert.deepStrictEqual(payload.smsBowerCountryFallback, [{ id: 6, label: 'Indonesia' }]);
+  assert.equal(payload.smsBowerServiceCode, 'dr');
   assert.equal(payload.heroSmsReuseEnabled, true);
   assert.equal(payload.freePhoneReuseEnabled, true);
   assert.equal(payload.freePhoneReuseAutoEnabled, true);

@@ -356,11 +356,13 @@ const PHONE_SMS_PROVIDER_5SIM = '5sim';
 const PHONE_SMS_PROVIDER_HERO_SMS = PHONE_SMS_PROVIDER_HERO;
 const PHONE_SMS_PROVIDER_FIVE_SIM = PHONE_SMS_PROVIDER_5SIM;
 const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
 const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
   PHONE_SMS_PROVIDER_HERO,
   PHONE_SMS_PROVIDER_5SIM,
   PHONE_SMS_PROVIDER_NEXSMS,
+  PHONE_SMS_PROVIDER_SMSBOWER,
 ]);
 const DEFAULT_FIVE_SIM_BASE_URL = 'https://5sim.net/v1';
 const DEFAULT_FIVE_SIM_PRODUCT = 'openai';
@@ -369,6 +371,10 @@ const DEFAULT_FIVE_SIM_COUNTRY_ORDER = Object.freeze(['thailand']);
 const DEFAULT_NEX_SMS_BASE_URL = 'https://api.nexsms.net';
 const DEFAULT_NEX_SMS_SERVICE_CODE = 'ot';
 const DEFAULT_NEX_SMS_COUNTRY_ORDER = Object.freeze([1]);
+const DEFAULT_SMS_BOWER_BASE_URL = 'https://smsbower.page/stubs/handler_api.php';
+const DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr';
+const SMS_BOWER_COUNTRY_ID = 52;
+const SMS_BOWER_COUNTRY_LABEL = 'Thailand';
 const DEFAULT_HERO_SMS_REUSE_ENABLED = true;
 const HERO_SMS_ACQUIRE_PRIORITY_COUNTRY = 'country';
 const HERO_SMS_ACQUIRE_PRIORITY_PRICE = 'price';
@@ -721,6 +727,12 @@ const PERSISTED_SETTING_DEFAULTS = {
   nexSmsApiKey: '',
   nexSmsCountryOrder: [...DEFAULT_NEX_SMS_COUNTRY_ORDER],
   nexSmsServiceCode: DEFAULT_NEX_SMS_SERVICE_CODE,
+  smsBowerApiKey: '',
+  smsBowerMaxPrice: '',
+  smsBowerCountryId: SMS_BOWER_COUNTRY_ID,
+  smsBowerCountryLabel: SMS_BOWER_COUNTRY_LABEL,
+  smsBowerCountryFallback: [],
+  smsBowerServiceCode: DEFAULT_SMS_BOWER_SERVICE_CODE,
   phonePreferredActivation: null,
 };
 
@@ -1147,6 +1159,9 @@ function normalizePhoneSmsProvider(value = '') {
   }
   if (normalized === PHONE_SMS_PROVIDER_NEXSMS) {
     return PHONE_SMS_PROVIDER_NEXSMS;
+  }
+  if (normalized === PHONE_SMS_PROVIDER_SMSBOWER || normalized === 'sms-bower') {
+    return PHONE_SMS_PROVIDER_SMSBOWER;
   }
   return PHONE_SMS_PROVIDER_HERO_SMS;
 }
@@ -2497,6 +2512,23 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeNexSmsCountryOrder(value);
     case 'nexSmsServiceCode':
       return normalizeNexSmsServiceCode(value);
+    case 'smsBowerApiKey':
+      return String(value || '');
+    case 'smsBowerMaxPrice':
+      return normalizeHeroSmsMaxPrice(value);
+    case 'smsBowerCountryId': {
+      const parsed = Math.floor(Number(value));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+      return SMS_BOWER_COUNTRY_ID;
+    }
+    case 'smsBowerCountryLabel':
+      return String(value || SMS_BOWER_COUNTRY_LABEL).trim() || SMS_BOWER_COUNTRY_LABEL;
+    case 'smsBowerCountryFallback':
+      return normalizeHeroSmsCountryFallback(value);
+    case 'smsBowerServiceCode':
+      return normalizeNexSmsServiceCode(value, DEFAULT_SMS_BOWER_SERVICE_CODE);
     case 'phonePreferredActivation':
       return normalizePhonePreferredActivation(value);
     default:
@@ -8732,10 +8764,35 @@ function notifyStepError(step, error) {
   if (waiter) waiter.reject(new Error(error));
 }
 
+function resolveFinalAccountRunState(previousState = {}, latestState = {}) {
+  if (!previousState || typeof previousState !== 'object') {
+    return latestState || {};
+  }
+  if (!latestState || typeof latestState !== 'object') {
+    return previousState || {};
+  }
+
+  return {
+    ...previousState,
+    ...latestState,
+    accountIdentifierType: latestState.accountIdentifierType || previousState.accountIdentifierType || null,
+    accountIdentifier: latestState.accountIdentifier || previousState.accountIdentifier || '',
+    email: latestState.email || previousState.email || '',
+    phoneNumber: latestState.phoneNumber || previousState.phoneNumber || '',
+    signupPhoneNumber: latestState.signupPhoneNumber || previousState.signupPhoneNumber || '',
+    password: latestState.password || previousState.password || null,
+    customPassword: latestState.customPassword || previousState.customPassword || '',
+    signupPhoneCompletedActivation: latestState.signupPhoneCompletedActivation || previousState.signupPhoneCompletedActivation || null,
+    signupPhoneActivation: latestState.signupPhoneActivation || previousState.signupPhoneActivation || null,
+    currentPhoneActivation: latestState.currentPhoneActivation || previousState.currentPhoneActivation || null,
+  };
+}
+
 async function runCompletedStepSideEffects(step, payload, completionState, lastStepId) {
   await handleStepData(step, payload);
   if (step === lastStepId) {
-    await appendAndBroadcastAccountRunRecord('success', completionState);
+    const latestState = await getState();
+    await appendAndBroadcastAccountRunRecord('success', resolveFinalAccountRunState(completionState, latestState));
   }
 }
 
@@ -10582,6 +10639,8 @@ const phoneVerificationHelpers = self.MultiPageBackgroundPhoneVerification?.crea
   DEFAULT_NEX_SMS_BASE_URL,
   DEFAULT_NEX_SMS_COUNTRY_ORDER,
   DEFAULT_NEX_SMS_SERVICE_CODE,
+  DEFAULT_SMS_BOWER_BASE_URL,
+  DEFAULT_SMS_BOWER_SERVICE_CODE,
   DEFAULT_HERO_SMS_BASE_URL,
   DEFAULT_HERO_SMS_REUSE_ENABLED,
   DEFAULT_PHONE_CODE_WAIT_SECONDS,

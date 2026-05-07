@@ -117,6 +117,41 @@ test('panel bridge can request cpa oauth url via management api', async () => {
   }
 });
 
+test('panel bridge rejects cpa oauth url without state', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: 'ok',
+      url: 'https://auth.openai.com/authorize',
+    }),
+  });
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+    const bridge = api.createPanelBridge({
+      addLog: async () => {},
+      getPanelMode: () => 'cpa',
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeSub2ApiUrl: (value) => value,
+      DEFAULT_SUB2API_GROUP_NAME: 'codex',
+      SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+    });
+
+    await assert.rejects(
+      () => bridge.requestOAuthUrlFromPanel({
+        panelMode: 'cpa',
+        vpsUrl: 'http://localhost:8317/admin/oauth',
+        vpsPassword: 'cpa-key',
+      }, { logLabel: '步骤 7' }),
+      /OAuth 授权链接缺少 state/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('panel bridge forwards SUB2API account priority when requesting oauth url', async () => {
   const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
   const sentMessages = [];

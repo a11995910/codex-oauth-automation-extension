@@ -205,10 +205,13 @@
       if (!oauthUrl || !oauthUrl.startsWith('http')) {
         throw new Error('CPA 管理接口未返回有效的 auth_url。');
       }
+      if (!oauthState) {
+        throw new Error('CPA 管理接口返回的 OAuth 授权链接缺少 state，无法安全校验回调。');
+      }
 
       return {
         oauthUrl,
-        cpaOAuthState: oauthState || null,
+        cpaOAuthState: oauthState,
         cpaManagementOrigin: origin,
       };
     }

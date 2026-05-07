@@ -3165,6 +3165,25 @@ header {
   line-height: 1.4;
 }
 
+.account-record-item-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.account-record-item-password {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .account-record-item-retry {
   display: inline-flex;
   align-items: center;
@@ -3175,6 +3194,31 @@ header {
   font-size: 11px;
   font-weight: 700;
   flex-shrink: 0;
+}
+
+.account-record-item-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-record-item-copy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.account-record-item-copy:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--blue) 28%, var(--border));
+  color: var(--blue);
 }
 
 .account-record-item.is-success {

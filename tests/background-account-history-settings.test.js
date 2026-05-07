@@ -114,8 +114,12 @@ const HERO_SMS_COUNTRY_LABEL = 'Thailand';
 const PHONE_SMS_PROVIDER_HERO_SMS = 'hero-sms';
 const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
 const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
-const DEFAULT_PHONE_SMS_PROVIDER_ORDER = ['hero-sms', '5sim', 'nexsms'];
+const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
+const DEFAULT_PHONE_SMS_PROVIDER_ORDER = ['hero-sms', '5sim', 'nexsms', 'smsbower'];
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO_SMS;
+const DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr';
+const SMS_BOWER_COUNTRY_ID = 52;
+const SMS_BOWER_COUNTRY_LABEL = 'Thailand';
 const SIGNUP_METHOD_EMAIL = 'email';
 const SIGNUP_METHOD_PHONE = 'phone';
 const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
@@ -234,8 +238,12 @@ return {
   assert.equal(api.normalizePersistentSettingValue('signupMethod', 'unknown'), 'email');
   assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', '5SIM'), '5sim');
   assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', 'NEXSMS'), 'nexsms');
+  assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', 'SMSBOWER'), 'smsbower');
   assert.equal(api.normalizePersistentSettingValue('phoneSmsProvider', 'unknown'), 'hero-sms');
-  assert.deepStrictEqual(api.normalizePersistentSettingValue('phoneSmsProviderOrder', ['nexsms', '5sim', 'nexsms']), ['nexsms', '5sim']);
+  assert.deepStrictEqual(
+    api.normalizePersistentSettingValue('phoneSmsProviderOrder', ['nexsms', 'sms-bower', '5sim', 'nexsms']),
+    ['nexsms', 'smsbower', '5sim']
+  );
   assert.equal(api.normalizePersistentSettingValue('fiveSimApiKey', ' demo-five '), ' demo-five ');
   assert.equal(api.normalizePersistentSettingValue('fiveSimProduct', ' OpenAI! '), 'openai');
   assert.equal(api.normalizePersistentSettingValue('fiveSimCountryId', ' England! '), 'england');
@@ -310,6 +318,17 @@ return {
     [1, 6]
   );
   assert.equal(api.normalizePersistentSettingValue('nexSmsServiceCode', ' OT! '), 'ot');
+  assert.equal(api.normalizePersistentSettingValue('smsBowerApiKey', ' demo-bower '), ' demo-bower ');
+  assert.equal(api.normalizePersistentSettingValue('smsBowerMaxPrice', '0.123456'), '0.1235');
+  assert.equal(api.normalizePersistentSettingValue('smsBowerMaxPrice', '0'), '');
+  assert.equal(api.normalizePersistentSettingValue('smsBowerCountryId', '52'), 52);
+  assert.equal(api.normalizePersistentSettingValue('smsBowerCountryId', ''), 52);
+  assert.equal(api.normalizePersistentSettingValue('smsBowerCountryLabel', ''), 'Thailand');
+  assert.deepStrictEqual(
+    api.normalizePersistentSettingValue('smsBowerCountryFallback', [{ id: 6, label: 'Indonesia' }, { id: 10 }]),
+    [{ id: 6, label: 'Indonesia' }, { id: 10, label: 'Country #10' }]
+  );
+  assert.equal(api.normalizePersistentSettingValue('smsBowerServiceCode', ' DR! '), 'dr');
   assert.deepStrictEqual(
     api.normalizePersistentSettingValue('phonePreferredActivation', {
       provider: 'nexsms',

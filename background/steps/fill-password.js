@@ -85,6 +85,7 @@
         phoneNumber: identity.phoneNumber,
         accountIdentifierType: identity.accountIdentifierType,
         accountIdentifier: identity.accountIdentifier,
+        password,
         createdAt: new Date().toISOString(),
       });
       await setState({ accounts });

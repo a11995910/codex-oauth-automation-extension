@@ -91,6 +91,23 @@
       return parsed.origin;
     }
 
+    function normalizeCpaManagementOrigin(origin, fallbackVpsUrl = '') {
+      const normalizedOrigin = normalizeString(origin);
+      if (!normalizedOrigin) {
+        return deriveCpaManagementOrigin(fallbackVpsUrl);
+      }
+      let parsed;
+      try {
+        parsed = new URL(normalizedOrigin);
+      } catch {
+        throw new Error('CPA 管理接口地址格式无效，请重新获取 OAuth 链接或检查侧边栏 CPA 地址。');
+      }
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('CPA 管理接口地址只允许 http 或 https。');
+      }
+      return parsed.origin;
+    }
+
     function getCpaApiErrorMessage(payload, responseStatus = 500) {
       const details = [
         payload?.error,
@@ -242,7 +259,10 @@
 
       const callback = parseLocalhostCallback(state.localhostUrl, platformVerifyStep);
       const expectedState = normalizeString(state.cpaOAuthState);
-      if (expectedState && expectedState !== callback.state) {
+      if (!expectedState) {
+        throw new Error(`缺少 CPA OAuth state，无法校验回调是否属于当前授权会话，请重新执行步骤 ${authLoginStep}。`);
+      }
+      if (expectedState !== callback.state) {
         throw new Error(`CPA 回调 state 与当前授权会话不匹配，请重新执行步骤 ${authLoginStep}。`);
       }
       const managementKey = normalizeString(state.vpsPassword);
@@ -252,7 +272,7 @@
 
       await addStepLog(platformVerifyStep, '正在通过 CPA 管理接口提交回调地址...');
       try {
-        const origin = normalizeString(state.cpaManagementOrigin) || deriveCpaManagementOrigin(state.vpsUrl);
+        const origin = normalizeCpaManagementOrigin(state.cpaManagementOrigin, state.vpsUrl);
         const result = await fetchCpaManagementJson(origin, '/v0/management/oauth-callback', {
           method: 'POST',
           managementKey,

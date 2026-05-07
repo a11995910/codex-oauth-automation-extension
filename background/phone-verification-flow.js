@@ -25,6 +25,8 @@
       DEFAULT_NEX_SMS_BASE_URL = 'https://api.nexsms.net',
       DEFAULT_NEX_SMS_COUNTRY_ORDER = [1],
       DEFAULT_NEX_SMS_SERVICE_CODE = 'ot',
+      DEFAULT_SMS_BOWER_BASE_URL = 'https://smsbower.page/stubs/handler_api.php',
+      DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr',
       DEFAULT_HERO_SMS_REUSE_ENABLED = true,
       createFiveSimProvider = null,
       HERO_SMS_COUNTRY_ID = 52,
@@ -81,11 +83,15 @@
     const PHONE_SMS_PROVIDER_HERO_SMS = PHONE_SMS_PROVIDER_HERO;
     const PHONE_SMS_PROVIDER_FIVE_SIM = PHONE_SMS_PROVIDER_5SIM;
     const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+    const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
+    const SMS_BOWER_COUNTRY_ID = 52;
+    const SMS_BOWER_COUNTRY_LABEL = 'Thailand';
     const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
     const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
       PHONE_SMS_PROVIDER_HERO,
       PHONE_SMS_PROVIDER_5SIM,
       PHONE_SMS_PROVIDER_NEXSMS,
+      PHONE_SMS_PROVIDER_SMSBOWER,
     ]);
     const MAX_PHONE_REUSABLE_POOL = 12;
     const PHONE_CODE_TIMEOUT_ERROR_PREFIX = 'PHONE_CODE_TIMEOUT::';
@@ -172,6 +178,9 @@
       }
       if (normalized === PHONE_SMS_PROVIDER_NEXSMS) {
         return PHONE_SMS_PROVIDER_NEXSMS;
+      }
+      if (normalized === PHONE_SMS_PROVIDER_SMSBOWER || normalized === 'sms-bower') {
+        return PHONE_SMS_PROVIDER_SMSBOWER;
       }
       return PHONE_SMS_PROVIDER_HERO;
     }
@@ -501,7 +510,7 @@
       });
 
       if (normalized.length) {
-        return normalized.slice(0, 3);
+        return normalized.slice(0, DEFAULT_PHONE_SMS_PROVIDER_ORDER.length);
       }
 
       const fallback = Array.isArray(fallbackOrder) ? fallbackOrder : [];
@@ -517,7 +526,7 @@
         fallbackNormalized.push(provider);
       });
 
-      return fallbackNormalized.slice(0, 3);
+      return fallbackNormalized.slice(0, DEFAULT_PHONE_SMS_PROVIDER_ORDER.length);
     }
 
     function resolvePhoneProviderOrder(state = {}, preferredProvider = '') {
@@ -545,7 +554,7 @@
         return fallbackOrder;
       }
       const withoutCurrent = fallbackOrder.filter((provider) => provider !== currentProvider);
-      return [currentProvider, ...withoutCurrent].slice(0, 3);
+      return [currentProvider, ...withoutCurrent].slice(0, DEFAULT_PHONE_SMS_PROVIDER_ORDER.length);
     }
 
     function reorderPriceCandidates(prices = [], acquirePriority = HERO_SMS_ACQUIRE_PRIORITY_COUNTRY, preferredPrice = null) {
@@ -606,25 +615,27 @@
     async function fetchHeroSmsPricePayloads(config, countryConfig, options = {}) {
       const payloads = [];
       const errors = [];
-      const actions = Array.isArray(options.actions) && options.actions.length
+      const actions = normalizePhoneSmsProvider(config?.provider) === PHONE_SMS_PROVIDER_SMSBOWER
+        ? ['getPrices']
+        : (Array.isArray(options.actions) && options.actions.length
         ? options.actions
         : (
           shouldUseHeroSmsExpandedPriceLookup(options.state || {})
             ? ['getPricesExtended', 'getPrices']
             : ['getPrices']
-        );
+        ));
 
       for (const action of actions) {
         try {
           const query = {
             action,
-            service: HERO_SMS_SERVICE_CODE,
+            service: config.serviceCode || HERO_SMS_SERVICE_CODE,
             country: countryConfig.id,
           };
           if (action === 'getPricesExtended') {
             query.freePrice = 'true';
           }
-          const payload = await fetchHeroSmsPayload(config, query, `HeroSMS ${action}`);
+          const payload = await fetchHeroSmsPayload(config, query, `${getPhoneSmsProviderLabel(config.provider)} ${action}`);
           payloads.push(payload);
         } catch (error) {
           errors.push({
@@ -773,7 +784,15 @@
       if (provider === PHONE_SMS_PROVIDER_NEXSMS) {
         return 'NexSMS';
       }
+      if (provider === PHONE_SMS_PROVIDER_SMSBOWER) {
+        return 'SMSBower';
+      }
       return 'HeroSMS';
+    }
+
+    function isHeroCompatibleProvider(providerId) {
+      const provider = normalizePhoneSmsProvider(providerId);
+      return provider === PHONE_SMS_PROVIDER_HERO || provider === PHONE_SMS_PROVIDER_SMSBOWER;
     }
 
     function formatStep9Reason(reason = '') {
@@ -971,6 +990,59 @@
       return candidates;
     }
 
+    function resolveSmsBowerCountryConfig(state = {}) {
+      const hasExplicitPrimaryCountry = Object.prototype.hasOwnProperty.call(state || {}, 'smsBowerCountryId');
+      const fallbackList = normalizeCountryFallbackList(state.smsBowerCountryFallback);
+      const primaryCountryId = normalizeCountryId(state.smsBowerCountryId, 0);
+      if (primaryCountryId > 0) {
+        return {
+          id: primaryCountryId,
+          label: normalizeCountryLabel(state.smsBowerCountryLabel, SMS_BOWER_COUNTRY_LABEL),
+        };
+      }
+      if (hasExplicitPrimaryCountry) {
+        if (fallbackList.length) {
+          const firstFallback = fallbackList[0];
+          return {
+            id: normalizeCountryId(firstFallback.id, 0),
+            label: normalizeCountryLabel(firstFallback.label, `Country #${firstFallback.id}`),
+          };
+        }
+        return null;
+      }
+      return {
+        id: normalizeCountryId(SMS_BOWER_COUNTRY_ID, SMS_BOWER_COUNTRY_ID),
+        label: normalizeCountryLabel(state.smsBowerCountryLabel, SMS_BOWER_COUNTRY_LABEL),
+      };
+    }
+
+    function resolveSmsBowerCountryCandidates(state = {}) {
+      const primary = resolveSmsBowerCountryConfig(state);
+      const fallbackList = normalizeCountryFallbackList(state.smsBowerCountryFallback);
+      if (!primary || !Number.isFinite(primary.id) || primary.id <= 0) {
+        return fallbackList
+          .map((entry) => ({
+            id: normalizeCountryId(entry.id, 0),
+            label: normalizeCountryLabel(entry.label, `Country #${entry.id}`),
+          }))
+          .filter((entry) => entry.id > 0);
+      }
+      const seen = new Set([primary.id]);
+      const candidates = [primary];
+      fallbackList.forEach((entry) => {
+        const nextId = normalizeCountryId(entry.id, 0);
+        if (!Number.isFinite(nextId) || nextId <= 0 || seen.has(nextId)) {
+          return;
+        }
+        seen.add(nextId);
+        candidates.push({
+          id: nextId,
+          label: normalizeCountryLabel(entry.label, `Country #${nextId}`),
+        });
+      });
+      return candidates;
+    }
+
     function normalizeActivation(record) {
       if (!record || typeof record !== 'object' || Array.isArray(record)) {
         return null;
@@ -996,7 +1068,11 @@
         || (
           provider === PHONE_SMS_PROVIDER_FIVE_SIM
             ? DEFAULT_FIVE_SIM_PRODUCT
-            : (provider === PHONE_SMS_PROVIDER_NEXSMS ? DEFAULT_NEX_SMS_SERVICE_CODE : HERO_SMS_SERVICE_CODE)
+            : (
+              provider === PHONE_SMS_PROVIDER_NEXSMS
+                ? DEFAULT_NEX_SMS_SERVICE_CODE
+                : (provider === PHONE_SMS_PROVIDER_SMSBOWER ? DEFAULT_SMS_BOWER_SERVICE_CODE : HERO_SMS_SERVICE_CODE)
+            )
         )
       ).trim();
       const countryId = provider === PHONE_SMS_PROVIDER_FIVE_SIM
@@ -1628,6 +1704,20 @@
         };
       }
 
+      if (provider === PHONE_SMS_PROVIDER_SMSBOWER) {
+        const apiKey = normalizeApiKey(state.smsBowerApiKey || state.heroSmsApiKey);
+        if (!apiKey) {
+          throw new Error('SMSBower API key is missing. Save it in the side panel before running the phone flow.');
+        }
+        return {
+          provider,
+          apiKey,
+          baseUrl: normalizeUrl(state.smsBowerBaseUrl, DEFAULT_SMS_BOWER_BASE_URL),
+          serviceCode: normalizeNexSmsServiceCode(state.smsBowerServiceCode, DEFAULT_SMS_BOWER_SERVICE_CODE),
+          countryCandidates: resolveSmsBowerCountryCandidates(state),
+        };
+      }
+
       const apiKey = normalizeApiKey(state.heroSmsApiKey);
       if (!apiKey) {
         throw new Error('HeroSMS API key is missing. Save it in the side panel before running the phone flow.');
@@ -1859,7 +1949,7 @@
       if (!text) {
         return false;
       }
-      return /no\s+numbers\s+available\s+across|no\s+free\s+phones|numbers?\s+not\s+found|no\s+numbers\s+within\s+maxprice|step\s*9:\s*(?:5sim|nexsms)\s+countries\s+are\s+empty|\bNO_NUMBERS\b/i.test(text);
+      return /no\s+numbers\s+available\s+across|no\s+free\s+phones|numbers?\s+not\s+found|no\s+numbers\s+within\s+maxprice|step\s*9:\s*(?:5sim|nexsms|smsbower)\s+countries\s+are\s+empty|\bNO_NUMBERS\b/i.test(text);
     }
 
     function resolveNoSupplyDiagnosticsContext(state = {}, providerOrder = []) {
@@ -1869,6 +1959,7 @@
       const heroCountryCount = resolveCountryCandidates(state).length;
       const fiveSimCountryCount = resolveFiveSimCountryCandidates(state).length;
       const nexSmsCountryCount = resolveNexSmsCountryCandidates(state).length;
+      const smsBowerCountryCount = resolveSmsBowerCountryCandidates(state).length;
       const maxPrice = normalizeHeroSmsPriceLimit(state?.heroSmsMaxPrice);
       const acquirePriority = normalizeHeroSmsAcquirePriority(state?.heroSmsAcquirePriority);
       return {
@@ -1876,6 +1967,7 @@
         heroCountryCount,
         fiveSimCountryCount,
         nexSmsCountryCount,
+        smsBowerCountryCount,
         maxPrice,
         acquirePriority,
       };
@@ -1898,6 +1990,9 @@
       }
       if ((context?.nexSmsCountryCount || 0) <= 0) {
         suggestions.push('NexSMS 至少选择 1 个国家');
+      }
+      if ((context?.smsBowerCountryCount || 0) <= 0) {
+        suggestions.push('SMSBower 至少选择 1 个国家');
       }
       if (String(context?.acquirePriority || '') === HERO_SMS_ACQUIRE_PRIORITY_COUNTRY) {
         suggestions.push('可尝试切到“价格优先”');
@@ -1951,7 +2046,7 @@
       const providerOrderText = context.order.join(' > ');
       const suggestion = formatNoSupplySuggestion(context);
       await addLog(
-        `Step 9 diagnostics: 无号连续失败 ${nextStreak} 次；maxPrice=${maxPriceText}；providerOrder=${providerOrderText}；国家数 HeroSMS=${context.heroCountryCount}, 5sim=${context.fiveSimCountryCount}, NexSMS=${context.nexSmsCountryCount}。建议：${suggestion}。`,
+        `Step 9 diagnostics: 无号连续失败 ${nextStreak} 次；maxPrice=${maxPriceText}；providerOrder=${providerOrderText}；国家数 HeroSMS=${context.heroCountryCount}, 5sim=${context.fiveSimCountryCount}, NexSMS=${context.nexSmsCountryCount}, SMSBower=${context.smsBowerCountryCount}。建议：${suggestion}。`,
         nextStreak >= 2 ? 'warn' : 'info'
       );
       return true;
@@ -2041,7 +2136,7 @@
     async function fetchPhoneActivationPayload(config, countryConfig, action, options = {}) {
       const query = {
         action,
-        service: HERO_SMS_SERVICE_CODE,
+        service: config.serviceCode || HERO_SMS_SERVICE_CODE,
         country: countryConfig.id,
       };
       if (options.maxPrice !== null && options.maxPrice !== undefined) {
@@ -2050,7 +2145,7 @@
           query.fixedPrice = 'true';
         }
       }
-      return fetchHeroSmsPayload(config, query, `HeroSMS ${action}`);
+      return fetchHeroSmsPayload(config, query, `${getPhoneSmsProviderLabel(config.provider)} ${action}`);
     }
 
     async function requestPhoneActivationWithPrice(config, countryConfig, action, maxPrice, options = {}) {
@@ -3022,11 +3117,18 @@
       if (config.provider === PHONE_SMS_PROVIDER_NEXSMS) {
         return requestNexSmsActivation(state, options);
       }
+      const providerLabel = getPhoneSmsProviderLabel(config.provider);
+      const heroCompatiblePriceState = config.provider === PHONE_SMS_PROVIDER_SMSBOWER
+        ? {
+          ...state,
+          heroSmsMaxPrice: state?.smsBowerMaxPrice,
+        }
+        : state;
       const allCountryCandidates = Array.isArray(config.countryCandidates) && config.countryCandidates.length
         ? config.countryCandidates
         : resolveCountryCandidates(state);
       if (!allCountryCandidates.length) {
-        throw new Error(`Step ${getActivePhoneVerificationVisibleStep()}: HeroSMS countries are empty. Please select at least one country in 接码设置。`);
+        throw new Error(`Step ${getActivePhoneVerificationVisibleStep()}: ${providerLabel} countries are empty. Please select at least one country in 接码设置。`);
       }
       const blockedCountryIds = new Set(
         (Array.isArray(options?.blockedCountryIds) ? options.blockedCountryIds : [])
@@ -3051,7 +3153,9 @@
         options?.countryPriceFloorByCountryId,
         (value) => String(normalizeCountryId(value, 0))
       );
-      const requestActions = ['getNumber', 'getNumberV2'];
+      const requestActions = config.provider === PHONE_SMS_PROVIDER_SMSBOWER
+        ? ['getNumber']
+        : ['getNumber', 'getNumberV2'];
       const configuredAcquireRounds = normalizePhoneActivationRetryRounds(
         state?.heroSmsActivationRetryRounds
       );
@@ -3067,7 +3171,7 @@
       for (let round = 1; round <= maxAcquireRounds; round += 1) {
         if (maxAcquireRounds > 1) {
           await addLog(
-            `步骤 9：HeroSMS 正在获取手机号（第 ${round}/${maxAcquireRounds} 轮）...`,
+            `步骤 9：${providerLabel} 正在获取手机号（第 ${round}/${maxAcquireRounds} 轮）...`,
             'info'
           );
         }
@@ -3084,7 +3188,7 @@
           || acquirePriority === HERO_SMS_ACQUIRE_PRIORITY_PRICE_HIGH
         ) {
           for (const attempt of countryAttempts) {
-            const pricePlan = await resolvePhoneActivationPricePlan(config, attempt.countryConfig, state);
+            const pricePlan = await resolvePhoneActivationPricePlan(config, attempt.countryConfig, heroCompatiblePriceState);
             const orderedPrices = reorderPriceCandidates(pricePlan?.prices, acquirePriority, preferredPriceTier);
             const numericPrices = Array.isArray(orderedPrices)
               ? orderedPrices
@@ -3130,10 +3234,12 @@
           const countryIdKey = String(normalizeCountryId(countryConfig?.id, 0));
           const countryPriceFloor = countryPriceFloorByCountryId.get(countryIdKey) ?? null;
           const buildFallbackActivation = (requestAction) => ({
+            provider: config.provider,
+            serviceCode: config.serviceCode || HERO_SMS_SERVICE_CODE,
             countryId: countryConfig.id,
             ...(requestAction === 'getNumberV2' ? { statusAction: 'getStatusV2' } : {}),
           });
-          const pricePlan = attempt.pricePlan || await resolvePhoneActivationPricePlan(config, countryConfig, state);
+          const pricePlan = attempt.pricePlan || await resolvePhoneActivationPricePlan(config, countryConfig, heroCompatiblePriceState);
           let noNumbersObservedInCountry = false;
 
           const orderedPrices = reorderPriceCandidates(pricePlan.prices, acquirePriority, preferredPriceTier);
@@ -3163,7 +3269,7 @@
                 .join(', ')
             : 'none';
           await addLog(
-            `Step 9: HeroSMS ${countryConfig.label} price plan resolved -> tiers=[${rawTierText}], userLimit=${pricePlan?.userLimit ?? 'none'}, minCatalog=${pricePlan?.minCatalogPrice ?? 'n/a'}.`,
+            `Step 9: ${providerLabel} ${countryConfig.label} price plan resolved -> tiers=[${rawTierText}], userLimit=${pricePlan?.userLimit ?? 'none'}, minCatalog=${pricePlan?.minCatalogPrice ?? 'n/a'}.`,
             'info'
           );
           if (pricesToTry.length > 1 || countryPriceFloor !== null) {
@@ -3171,7 +3277,7 @@
               .map((value) => (value === null || value === undefined ? 'auto' : String(value)))
               .join(', ');
             await addLog(
-              `Step 9: HeroSMS ${countryConfig.label} price candidates: ${tierText}${countryPriceFloor !== null ? ` (floor>${countryPriceFloor})` : ''}.`,
+              `Step 9: ${providerLabel} ${countryConfig.label} price candidates: ${tierText}${countryPriceFloor !== null ? ` (floor>${countryPriceFloor})` : ''}.`,
               'info'
             );
           }
@@ -3207,7 +3313,7 @@
               try {
                 const fixedPrice = !Boolean(pricePlan.syntheticUserLimitProbe);
                 await addLog(
-                  `Step 9: HeroSMS ${countryConfig.label} trying ${requestAction} at tier ${maxPrice === null || maxPrice === undefined ? 'auto' : maxPrice}.`,
+                  `Step 9: ${providerLabel} ${countryConfig.label} trying ${requestAction} at tier ${maxPrice === null || maxPrice === undefined ? 'auto' : maxPrice}.`,
                   'info'
                 );
                 const payload = await requestPhoneActivationWithPrice(
@@ -3236,14 +3342,14 @@
                   continue;
                 }
                 if (isHeroSmsTerminalError(payload)) {
-                  throw new Error(`HeroSMS ${requestAction} failed: ${payloadText || 'empty response'}`);
+                  throw new Error(`${providerLabel} ${requestAction} failed: ${payloadText || 'empty response'}`);
                 }
                 lastFailureText = payloadText || lastFailureText;
-                lastError = new Error(`HeroSMS ${requestAction} failed: ${payloadText || 'empty response'}`);
+                lastError = new Error(`${providerLabel} ${requestAction} failed: ${payloadText || 'empty response'}`);
               } catch (error) {
                 const payloadOrMessage = error?.payload || error?.message;
                 if (isHeroSmsTerminalError(payloadOrMessage)) {
-                  throw new Error(`HeroSMS ${requestAction} failed: ${describeHeroSmsPayload(payloadOrMessage) || 'empty response'}`);
+                  throw new Error(`${providerLabel} ${requestAction} failed: ${describeHeroSmsPayload(payloadOrMessage) || 'empty response'}`);
                 }
                 if (isHeroSmsNoNumbersPayload(payloadOrMessage)) {
                   noNumbersObservedInCountry = true;
@@ -3288,11 +3394,11 @@
           && retryableNoNumberCountries.length > 0
         ) {
           await addLog(
-            `步骤 9：HeroSMS 暂无可用号码（第 ${round}/${maxAcquireRounds} 轮）；${Math.ceil(retryDelayMs / 1000)} 秒后重试。国家：${retryableNoNumberCountries.join(', ')}。`,
+            `步骤 9：${providerLabel} 暂无可用号码（第 ${round}/${maxAcquireRounds} 轮）；${Math.ceil(retryDelayMs / 1000)} 秒后重试。国家：${retryableNoNumberCountries.join(', ')}。`,
             'warn'
           );
           await addLog(
-            `步骤 9：HeroSMS 暂无可用号码（第 ${round}/${maxAcquireRounds} 轮），${Math.ceil(retryDelayMs / 1000)} 秒后重试。国家：${retryableNoNumberCountries.join(', ')}。`,
+            `步骤 9：${providerLabel} 暂无可用号码（第 ${round}/${maxAcquireRounds} 轮），${Math.ceil(retryDelayMs / 1000)} 秒后重试。国家：${retryableNoNumberCountries.join(', ')}。`,
             'warn'
           );
           await sleepWithStop(retryDelayMs);
@@ -3304,14 +3410,14 @@
 
       if (finalNoNumbersByCountry.length) {
         throw new Error(
-          `HeroSMS 已尝试 ${countryCandidates.length} 个候选国家，均无可用号码：${finalNoNumbersByCountry.join(' | ')}。`
-          + ` HeroSMS no numbers available across ${countryCandidates.length} country candidate(s): ${finalNoNumbersByCountry.join(' | ')}.`
+          `${providerLabel} 已尝试 ${countryCandidates.length} 个候选国家，均无可用号码：${finalNoNumbersByCountry.join(' | ')}。`
+          + ` ${providerLabel} no numbers available across ${countryCandidates.length} country candidate(s): ${finalNoNumbersByCountry.join(' | ')}.`
         );
       }
       if (finalLastError) {
         throw finalLastError;
       }
-      throw new Error(`HeroSMS 获取手机号失败，最后状态：${finalLastFailureText || '未知'}。`);
+      throw new Error(`${providerLabel} 获取手机号失败，最后状态：${finalLastFailureText || '未知'}。`);
     }
 
     async function reactivatePhoneActivation(state = {}, activation) {
@@ -3531,7 +3637,7 @@
 
     async function requestAdditionalPhoneSms(state = {}, activation) {
       const config = resolvePhoneConfig(state);
-      if (config.provider !== PHONE_SMS_PROVIDER_HERO) {
+      if (!isHeroCompatibleProvider(config.provider)) {
         return;
       }
       try {
@@ -3916,6 +4022,9 @@
       }
       if (normalizePhoneSmsProvider(providerId) === PHONE_SMS_PROVIDER_NEXSMS) {
         return resolveNexSmsCountryCandidates(state);
+      }
+      if (normalizePhoneSmsProvider(providerId) === PHONE_SMS_PROVIDER_SMSBOWER) {
+        return resolveSmsBowerCountryCandidates(state);
       }
       return resolveCountryCandidates(state);
     }
@@ -4555,7 +4664,7 @@
           const providerLabel = getPhoneSmsProviderLabel(providerCandidate);
           if (
             providerCandidate !== provider
-            && /step\s*9:\s*(?:5sim|nexsms)\s+countries\s+are\s+empty/i.test(providerErrorMessage)
+            && /step\s*9:\s*(?:5sim|nexsms|smsbower)\s+countries\s+are\s+empty/i.test(providerErrorMessage)
           ) {
             skippedFallbackProviders.push(`${providerLabel}: countries are empty`);
             await addLog(

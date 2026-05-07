@@ -372,6 +372,7 @@
         record.accountIdentifier || record.email || record.phoneNumber,
         record.accountIdentifierType || (phoneKey && !emailKey ? 'phone' : 'email')
       );
+      const matchedRecords = [];
       const nextHistory = normalizedHistory.filter((item) => {
         const itemRecordId = String(item.recordId || '').trim();
         const itemEmailKey = String(item.email || '').trim().toLowerCase();
@@ -380,13 +381,30 @@
           item.accountIdentifier || item.email || item.phoneNumber,
           item.accountIdentifierType || (itemPhoneKey && !itemEmailKey ? 'phone' : 'email')
         );
-        return itemRecordId !== recordId
-          && itemIdentifierKey !== identifierKey
-          && (!emailKey || itemEmailKey !== emailKey)
-          && (!phoneKey || itemPhoneKey !== phoneKey);
+        const matched = itemRecordId === recordId
+          || itemIdentifierKey === identifierKey
+          || (emailKey && itemEmailKey === emailKey)
+          || (phoneKey && itemPhoneKey === phoneKey);
+        if (matched) {
+          matchedRecords.push(item);
+        }
+        return !matched;
       });
 
-      nextHistory.unshift(record);
+      const preservedPassword = matchedRecords.find((item) => String(item.password || '').trim())?.password || '';
+      const preservedEmail = matchedRecords.find((item) => String(item.email || '').trim())?.email || '';
+      const preservedPhoneNumber = matchedRecords.find((item) => String(item.phoneNumber || '').trim())?.phoneNumber || '';
+      const mergedRecord = normalizeAccountRunHistoryRecord({
+        ...record,
+        email: record.email || preservedEmail,
+        phoneNumber: record.phoneNumber || preservedPhoneNumber,
+        password: record.password || preservedPassword,
+      });
+      if (!mergedRecord) {
+        return normalizeAccountRunHistory(nextHistory);
+      }
+
+      nextHistory.unshift(mergedRecord);
       return normalizeAccountRunHistory(nextHistory);
     }
 

@@ -83,6 +83,67 @@ test('phone verification helper requests HeroSMS numbers with fixed OpenAI and T
   assert.equal(requests[1].searchParams.get('api_key'), 'demo-key');
 });
 
+test('phone verification helper requests SMSBower numbers through handler API with OpenAI service code', async () => {
+  const requests = [];
+  const state = {
+    phoneSmsProvider: 'smsbower',
+    smsBowerApiKey: 'bower-key',
+    smsBowerCountryId: 52,
+    smsBowerCountryLabel: 'Thailand',
+    smsBowerServiceCode: 'dr',
+  };
+  const helpers = api.createPhoneVerificationHelpers({
+    addLog: async () => {},
+    ensureStep8SignupPageReady: async () => {},
+    fetchImpl: async (url) => {
+      const parsedUrl = new URL(url);
+      requests.push(parsedUrl);
+      const action = parsedUrl.searchParams.get('action');
+      if (action === 'getPrices') {
+        return {
+          ok: true,
+          text: async () => buildHeroSmsPricesPayload(),
+        };
+      }
+      if (action === 'getNumber') {
+        return {
+          ok: true,
+          text: async () => 'ACCESS_NUMBER:789012:66958880000',
+        };
+      }
+      throw new Error(`Unexpected SMSBower action: ${action}`);
+    },
+    getState: async () => state,
+    sendToContentScriptResilient: async () => ({}),
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+  });
+
+  const activation = await helpers.requestPhoneActivation(state);
+
+  assert.deepStrictEqual(activation, {
+    activationId: '789012',
+    phoneNumber: '66958880000',
+    provider: 'smsbower',
+    serviceCode: 'dr',
+    countryId: 52,
+    successfulUses: 0,
+    maxUses: 3,
+  });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].origin, 'https://smsbower.page');
+  assert.equal(requests[0].pathname, '/stubs/handler_api.php');
+  assert.equal(requests[0].searchParams.get('action'), 'getPrices');
+  assert.equal(requests[0].searchParams.get('service'), 'dr');
+  assert.equal(requests[0].searchParams.get('country'), '52');
+  assert.equal(requests[0].searchParams.get('api_key'), 'bower-key');
+  assert.equal(requests[1].searchParams.get('action'), 'getNumber');
+  assert.equal(requests[1].searchParams.get('service'), 'dr');
+  assert.equal(requests[1].searchParams.get('country'), '52');
+  assert.equal(requests[1].searchParams.get('api_key'), 'bower-key');
+});
+
 test('signup phone helper persists signup runtime state without touching add-phone activation', async () => {
   const setStateCalls = [];
   let currentState = {

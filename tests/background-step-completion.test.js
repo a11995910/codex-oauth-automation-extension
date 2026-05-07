@@ -90,6 +90,7 @@ async function handleStepData(step, payload) {
 async function appendAndBroadcastAccountRunRecord(status, state) {
   events.push({ type: 'record', status, state });
 }
+${extractFunction('resolveFinalAccountRunState')}
 ${extractFunction('runCompletedStepSideEffects')}
 ${extractFunction('reportCompletedStepSideEffectError')}
 ${extractFunction('completeStepFromBackground')}

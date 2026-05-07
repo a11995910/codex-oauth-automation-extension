@@ -4,11 +4,16 @@
 })(typeof self !== 'undefined' ? self : globalThis, function createPhoneSmsProviderRegistry(root) {
   const PROVIDER_HERO_SMS = 'hero-sms';
   const PROVIDER_FIVE_SIM = '5sim';
+  const PROVIDER_NEX_SMS = 'nexsms';
+  const PROVIDER_SMS_BOWER = 'smsbower';
   const DEFAULT_PROVIDER = PROVIDER_HERO_SMS;
 
   function normalizeProviderId(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
-    return normalized === PROVIDER_FIVE_SIM ? PROVIDER_FIVE_SIM : PROVIDER_HERO_SMS;
+    if (normalized === PROVIDER_FIVE_SIM) return PROVIDER_FIVE_SIM;
+    if (normalized === PROVIDER_NEX_SMS) return PROVIDER_NEX_SMS;
+    if (normalized === PROVIDER_SMS_BOWER || normalized === 'sms-bower') return PROVIDER_SMS_BOWER;
+    return PROVIDER_HERO_SMS;
   }
 
   function getProviderModule(providerId = DEFAULT_PROVIDER) {
@@ -28,12 +33,18 @@
   }
 
   function getProviderLabel(providerId = DEFAULT_PROVIDER) {
-    return normalizeProviderId(providerId) === PROVIDER_FIVE_SIM ? '5sim' : 'HeroSMS';
+    const normalized = normalizeProviderId(providerId);
+    if (normalized === PROVIDER_FIVE_SIM) return '5sim';
+    if (normalized === PROVIDER_NEX_SMS) return 'NexSMS';
+    if (normalized === PROVIDER_SMS_BOWER) return 'SMSBower';
+    return 'HeroSMS';
   }
 
   return {
     PROVIDER_HERO_SMS,
     PROVIDER_FIVE_SIM,
+    PROVIDER_NEX_SMS,
+    PROVIDER_SMS_BOWER,
     DEFAULT_PROVIDER,
     normalizeProviderId,
     getProviderModule,

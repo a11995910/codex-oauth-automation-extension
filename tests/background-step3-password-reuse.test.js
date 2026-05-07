@@ -99,12 +99,14 @@ test('step 3 supports phone-only signup identity when password page is present',
     phoneNumber: account.phoneNumber,
     accountIdentifierType: account.accountIdentifierType,
     accountIdentifier: account.accountIdentifier,
+    password: account.password,
   })), [
     {
       email: '',
       phoneNumber: '66959916439',
       accountIdentifierType: 'phone',
       accountIdentifier: '66959916439',
+      password: 'PhoneSecret123!',
     },
   ]);
   assert.deepStrictEqual(events.messages, [

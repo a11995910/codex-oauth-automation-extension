@@ -324,6 +324,51 @@ test('account run history keeps phone as primary identity when phone signup late
   assert.equal(storedHistory[0].finalStatus, 'success');
 });
 
+test('account run history keeps existing password when final success state has an empty password', async () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  let storedHistory = [{
+    recordId: 'done@example.com',
+    accountIdentifierType: 'email',
+    accountIdentifier: 'done@example.com',
+    email: 'done@example.com',
+    password: 'SavedSecret123!',
+    finalStatus: 'failed',
+    finishedAt: '2026-04-17T04:31:00.000Z',
+    failureDetail: '步骤 9 失败。',
+  }];
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: {
+      storage: {
+        local: {
+          get: async () => ({ accountRunHistory: storedHistory }),
+          set: async (payload) => {
+            storedHistory = payload.accountRunHistory;
+          },
+        },
+      },
+    },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: () => '',
+  });
+
+  const record = await helpers.appendAccountRunRecord('success', {
+    accountIdentifierType: 'email',
+    accountIdentifier: 'done@example.com',
+    email: 'done@example.com',
+    password: '',
+    accountRunHistoryHelperBaseUrl: '',
+  });
+
+  assert.equal(record.password, '');
+  assert.equal(storedHistory.length, 1);
+  assert.equal(storedHistory[0].finalStatus, 'success');
+  assert.equal(storedHistory[0].password, 'SavedSecret123!');
+});
+
 test('account run history records preserve Plus and contribution mode flags', () => {
   const source = fs.readFileSync('background/account-run-history.js', 'utf8');
   const globalScope = {};

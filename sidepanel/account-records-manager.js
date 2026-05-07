@@ -163,6 +163,19 @@
         : primaryIdentifier;
     }
 
+    function getRecordPassword(record = {}) {
+      return String(record.password || '').trim();
+    }
+
+    function buildRecordCopyText(record = {}) {
+      const primaryIdentifier = getRecordPrimaryIdentifier(record);
+      const password = getRecordPassword(record);
+      return [
+        `账号：${primaryIdentifier || ''}`,
+        `密码：${password || ''}`,
+      ].join('\n');
+    }
+
     function getAccountRunRecords(currentState = state.getLatestState()) {
       return (Array.isArray(currentState?.accountRunHistory) ? currentState.accountRunHistory : [])
         .filter((item) => item && typeof item === 'object')
@@ -453,6 +466,7 @@
         const statusMeta = getStatusMeta(record);
         const summaryText = getRecordSummaryText(record);
         const retryCount = normalizeRetryCount(record.retryCount);
+        const password = getRecordPassword(record);
         const isSelected = selectedRecordIds.has(recordId);
         const itemClassNames = [
           'account-record-item',
@@ -493,7 +507,17 @@
             </div>
             <div class="account-record-item-bottom">
               <div class="account-record-item-summary">${escapeHtml(summaryText)}</div>
-              <span class="account-record-item-retry mono">重试 ${escapeHtml(String(retryCount))}</span>
+              <div class="account-record-item-meta">
+                <span class="account-record-item-password mono">密码 ${escapeHtml(password || '未记录')}</span>
+                <span class="account-record-item-retry mono">重试 ${escapeHtml(String(retryCount))}</span>
+                <button
+                  class="account-record-item-copy"
+                  type="button"
+                  data-account-record-copy="${escapeHtml(recordId)}"
+                  title="复制账号密码"
+                  ${password ? '' : 'disabled'}
+                >复制</button>
+              </div>
             </div>
           </div>
         `;
@@ -652,6 +676,20 @@
     }
 
     function handleRecordListClick(event) {
+      const copyNode = findClosest(event?.target, '[data-account-record-copy]');
+      if (copyNode) {
+        const recordId = getDatasetValue(copyNode, 'data-account-record-copy');
+        const record = getAccountRunRecords().find((item) => buildRecordId(item) === recordId);
+        const password = getRecordPassword(record);
+        if (!record || !password) {
+          helpers.showToast?.('这条账号记录还没有密码。', 'warn', 1800);
+          return;
+        }
+        helpers.copyTextToClipboard?.(buildRecordCopyText(record));
+        helpers.showToast?.('已复制账号密码。', 'success', 1600);
+        return;
+      }
+
       if (!selectionMode) {
         return;
       }

@@ -76,6 +76,7 @@ test('platform verify module submits CPA callback via management API first', asy
     await executor.executeStep10({
       panelMode: 'cpa',
       localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+      cpaOAuthState: 'oauth-state',
       vpsUrl: 'http://localhost:8317/admin/oauth',
       vpsPassword: 'cpa-key',
     });
@@ -123,6 +124,7 @@ test('platform verify module prefers cpaManagementOrigin when provided', async (
     await executor.executeStep10({
       panelMode: 'cpa',
       localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+      cpaOAuthState: 'oauth-state',
       cpaManagementOrigin: 'http://localhost:9999',
       vpsUrl: 'http://localhost:8317/admin/oauth',
       vpsPassword: 'cpa-key',
@@ -152,6 +154,7 @@ test('platform verify module fails fast when CPA API submit fails', async () => 
       () => executor.executeStep10({
         panelMode: 'cpa',
         localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+        cpaOAuthState: 'oauth-state',
         vpsUrl: 'http://localhost:8317/admin/oauth',
         vpsPassword: 'cpa-key',
       }),
@@ -191,6 +194,7 @@ test('platform verify module requires management key for CPA API-only flow', asy
       () => executor.executeStep10({
         panelMode: 'cpa',
         localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=oauth-state',
+        cpaOAuthState: 'oauth-state',
         vpsUrl: 'http://localhost:8317/admin/oauth',
         vpsPassword: '   ',
       }),
@@ -232,6 +236,39 @@ test('platform verify module rejects callback when cpa oauth state mismatches', 
         vpsPassword: 'cpa-key',
       }),
       /CPA 回调 state 与当前授权会话不匹配/
+    );
+
+    assert.equal(fetchCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('platform verify module rejects CPA callback when expected oauth state is missing', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return {
+      ok: true,
+      json: async () => ({ message: 'should not happen' }),
+    };
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+    const { deps } = createDeps();
+    const executor = api.createStep10Executor(deps);
+
+    await assert.rejects(
+      () => executor.executeStep10({
+        panelMode: 'cpa',
+        localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=callback-state',
+        vpsUrl: 'http://localhost:8317/admin/oauth',
+        vpsPassword: 'cpa-key',
+      }),
+      /缺少 CPA OAuth state/
     );
 
     assert.equal(fetchCalled, false);

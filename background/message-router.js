@@ -130,6 +130,30 @@
       verifyHotmailAccount,
     } = deps;
 
+    function resolveFinalAccountRunState(previousState = {}, latestState = {}) {
+      if (!previousState || typeof previousState !== 'object') {
+        return latestState || {};
+      }
+      if (!latestState || typeof latestState !== 'object') {
+        return previousState || {};
+      }
+
+      return {
+        ...previousState,
+        ...latestState,
+        accountIdentifierType: latestState.accountIdentifierType || previousState.accountIdentifierType || null,
+        accountIdentifier: latestState.accountIdentifier || previousState.accountIdentifier || '',
+        email: latestState.email || previousState.email || '',
+        phoneNumber: latestState.phoneNumber || previousState.phoneNumber || '',
+        signupPhoneNumber: latestState.signupPhoneNumber || previousState.signupPhoneNumber || '',
+        password: latestState.password || previousState.password || null,
+        customPassword: latestState.customPassword || previousState.customPassword || '',
+        signupPhoneCompletedActivation: latestState.signupPhoneCompletedActivation || previousState.signupPhoneCompletedActivation || null,
+        signupPhoneActivation: latestState.signupPhoneActivation || previousState.signupPhoneActivation || null,
+        currentPhoneActivation: latestState.currentPhoneActivation || previousState.currentPhoneActivation || null,
+      };
+    }
+
     async function appendManualAccountRunRecordIfNeeded(status, stateOverride = null, reason = '') {
       if (typeof appendAccountRunRecord !== 'function') {
         return null;
@@ -575,7 +599,8 @@
           await addLog('已完成', 'ok', { step: message.step });
           await handleStepData(message.step, message.payload);
           if (message.step === lastStepId && typeof appendAccountRunRecord === 'function') {
-            await appendAccountRunRecord('success', completionState);
+            const latestState = await getState();
+            await appendAccountRunRecord('success', resolveFinalAccountRunState(completionState, latestState));
           }
           notifyStepComplete(message.step, message.payload);
           return { ok: true };

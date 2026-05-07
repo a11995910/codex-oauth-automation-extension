@@ -233,6 +233,7 @@ test('account records manager supports filter chips and partial multi-select del
   const pageLabel = createNode();
   const messages = [];
   const toasts = [];
+  const copiedTexts = [];
   let manager = null;
 
   manager = api.createAccountRecordsManager({
@@ -261,6 +262,9 @@ test('account records manager supports filter chips and partial multi-select del
       btnToggleAccountRecordsSelection,
     },
     helpers: {
+      copyTextToClipboard: async (text) => {
+        copiedTexts.push(text);
+      },
       escapeHtml: (value) => String(value || ''),
       openConfirmModal: async () => true,
       showToast(message, tone) {
@@ -296,9 +300,23 @@ test('account records manager supports filter chips and partial multi-select del
   assert.match(meta.textContent, /共 3 条/);
   assert.match(stats.innerHTML, /data-account-record-filter="retry"/);
   assert.match(list.innerHTML, /success@example\.com/);
+  assert.match(list.innerHTML, /密码 secret/);
+  assert.match(list.innerHTML, /data-account-record-copy="success@example\.com"/);
   assert.match(list.innerHTML, /failed@example\.com/);
   assert.equal(pageLabel.textContent, '1 / 1');
   assert.equal(btnDeleteSelectedAccountRecords.hidden, true);
+
+  list.listeners.click({
+    target: createClosestTarget({
+      '[data-account-record-copy]': createDataNode('data-account-record-copy', 'success@example.com'),
+    }),
+  });
+
+  assert.deepStrictEqual(copiedTexts, ['账号：success@example.com\n密码：secret']);
+  assert.deepStrictEqual(toasts.at(-1), {
+    message: '已复制账号密码。',
+    tone: 'success',
+  });
 
   stats.listeners.click({
     target: createClosestTarget({

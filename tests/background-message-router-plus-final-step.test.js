@@ -8,6 +8,7 @@ const api = new Function('self', `${source}; return self.MultiPageBackgroundMess
 
 test('message router appends success record on Plus final step instead of hard-coded step 10', async () => {
   const appendCalls = [];
+  let stateReadCount = 0;
   const router = api.createMessageRouter({
     addLog: async () => {},
     appendAccountRunRecord: async (...args) => {
@@ -43,7 +44,12 @@ test('message router appends success record on Plus final step instead of hard-c
     getCurrentLuckmailPurchase: () => null,
     getPendingAutoRunTimerPlan: () => null,
     getSourceLabel: () => '',
-    getState: async () => ({ plusModeEnabled: true, stepStatuses: { 13: 'pending' } }),
+    getState: async () => {
+      stateReadCount += 1;
+      return stateReadCount === 1
+        ? { plusModeEnabled: true, stepStatuses: { 13: 'pending' }, email: 'before@example.com', password: '' }
+        : { plusModeEnabled: true, stepStatuses: { 13: 'completed' }, email: 'after@example.com', password: 'secret' };
+    },
     getLastStepIdForState: () => 13,
     getStepDefinitionForState: (step) => ({ id: step, key: step === 10 ? 'oauth-login' : 'platform-verify' }),
     getStepIdsForState: () => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
@@ -102,4 +108,6 @@ test('message router appends success record on Plus final step instead of hard-c
 
   assert.equal(appendCalls.length, 1);
   assert.equal(appendCalls[0][0], 'success');
+  assert.equal(appendCalls[0][1].email, 'after@example.com');
+  assert.equal(appendCalls[0][1].password, 'secret');
 });
