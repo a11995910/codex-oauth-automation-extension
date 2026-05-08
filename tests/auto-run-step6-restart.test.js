@@ -56,6 +56,8 @@ const bundle = [
   extractFunction('isAddPhoneAuthFailure'),
   extractFunction('isAddPhoneAuthUrl'),
   extractFunction('isAddPhoneAuthState'),
+  extractFunction('isPlusCheckoutNonFreeTrialFailure'),
+  extractFunction('isGpcTaskEndedFailure'),
   extractFunction('getPostStep6AutoRestartDecision'),
   extractFunction('runAutoSequenceFromStep'),
 ].join('\n');
@@ -291,6 +293,26 @@ test('auto-run stop errors after step 7 are rethrown immediately instead of rest
   assert.equal(result?.error?.message, '流程已被用户停止。');
   assert.equal(result.events.invalidations.length, 0);
   assert.deepStrictEqual(result.events.steps, [7, 8, 9]);
+  assert.ok(!result.events.logs.some(({ message }) => /回到步骤 7 重新开始授权流程/.test(message)));
+});
+
+test('auto-run does not restart step 7 when GPC reports no free trial eligibility', async () => {
+  const harness = createHarness({
+    failureStep: 7,
+    failureBudget: 1,
+    failureMessage: 'GPC_TASK_ENDED::ChatGPT 账号没有免费试用资格，请换号重试！（stripe_init）',
+    authState: { state: 'password_page', url: 'https://auth.openai.com/log-in' },
+    customState: {
+      plusModeEnabled: true,
+      plusPaymentMethod: 'gpc-helper',
+    },
+  });
+
+  const result = await harness.runAndCaptureError();
+
+  assert.equal(result?.error?.message, 'GPC_TASK_ENDED::ChatGPT 账号没有免费试用资格，请换号重试！（stripe_init）');
+  assert.equal(result.events.invalidations.length, 0);
+  assert.deepStrictEqual(result.events.steps, [7]);
   assert.ok(!result.events.logs.some(({ message }) => /回到步骤 7 重新开始授权流程/.test(message)));
 });
 

@@ -101,6 +101,10 @@ const inputSub2ApiGroup = { value: '' };
 const inputSub2ApiDefaultProxy = { value: '' };
 const inputCodex2ApiUrl = { value: '' };
 const inputCodex2ApiAdminKey = { value: '' };
+const inputManagerUrl = { value: '' };
+const inputManagerRpcToken = { value: '' };
+const inputManagerTags = { value: '' };
+const inputManagerNote = { value: '' };
 const inputPassword = { value: '' };
 const selectMailProvider = { value: 'icloud' };
 const selectEmailGenerator = { value: 'duck' };
@@ -374,6 +378,10 @@ const inputSub2ApiGroup = { value: '' };
 const inputSub2ApiDefaultProxy = { value: '' };
 const inputCodex2ApiUrl = { value: '' };
 const inputCodex2ApiAdminKey = { value: '' };
+const inputManagerUrl = { value: '' };
+const inputManagerRpcToken = { value: '' };
+const inputManagerTags = { value: '' };
+const inputManagerNote = { value: '' };
 const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const GMAIL_ALIAS_GENERATOR = 'gmail-alias';
@@ -458,7 +466,7 @@ function renderStepStatuses() {}
 function setLocalCpaStep9Mode() {}
 function normalizePanelMode(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  return normalized === 'sub2api' || normalized === 'codex2api' ? normalized : 'cpa';
+  return normalized === 'sub2api' || normalized === 'codex2api' || normalized === 'manager' ? normalized : 'cpa';
 }
 function isCustomMailProvider() { return false; }
 function setMail2925Mode() {}

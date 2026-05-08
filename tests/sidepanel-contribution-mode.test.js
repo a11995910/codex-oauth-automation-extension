@@ -196,6 +196,10 @@ const inputSub2ApiGroup = { value: ' codex ' };
 const inputSub2ApiDefaultProxy = { value: ' proxy-a ' };
 const inputCodex2ApiUrl = { value: 'http://localhost:8080/admin/accounts' };
 const inputCodex2ApiAdminKey = { value: 'codex-admin-secret' };
+const inputManagerUrl = { value: 'http://localhost:48760' };
+const inputManagerRpcToken = { value: 'manager-token' };
+const inputManagerTags = { value: 'codex,test' };
+const inputManagerNote = { value: '测试备注' };
 const inputPassword = { value: 'Secret123!' };
 const selectMailProvider = { value: '163' };
 const selectEmailGenerator = { value: 'duck' };
@@ -328,6 +332,10 @@ return {
   assert.equal(normalPayload.phoneVerificationEnabled, true);
   assert.equal(normalPayload.codex2apiUrl, 'http://localhost:8080/admin/accounts');
   assert.equal(normalPayload.codex2apiAdminKey, 'codex-admin-secret');
+  assert.equal(normalPayload.managerUrl, 'http://localhost:48760');
+  assert.equal(normalPayload.managerRpcToken, 'manager-token');
+  assert.equal(normalPayload.managerTags, 'codex,test');
+  assert.equal(normalPayload.managerNote, '测试备注');
   assert.equal(normalPayload.cloudflareTempEmailUseRandomSubdomain, true);
 });
 
@@ -402,6 +410,10 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
     rowSub2ApiUrl: createElement(),
     rowCodex2ApiUrl: createElement(),
     rowCodex2ApiAdminKey: createElement(),
+    rowManagerUrl: createElement(),
+    rowManagerRpcToken: createElement(),
+    rowManagerTags: createElement(),
+    rowManagerNote: createElement(),
     rowVpsPassword: createElement(),
     rowVpsUrl: createElement(),
     selectPanelMode: createElement({ value: 'sub2api' }),
@@ -561,6 +573,8 @@ test('contribution mode manager enters mode, starts main auto flow, polls contri
   assert.equal(dom.rowVpsUrl.classList.contains('is-contribution-hidden'), true);
   assert.equal(dom.rowCodex2ApiUrl.classList.contains('is-contribution-hidden'), true);
   assert.equal(dom.rowCodex2ApiAdminKey.classList.contains('is-contribution-hidden'), true);
+  assert.equal(dom.rowManagerUrl.classList.contains('is-contribution-hidden'), true);
+  assert.equal(dom.rowManagerRpcToken.classList.contains('is-contribution-hidden'), true);
   assert.ok(closeConfigMenuCount >= 1);
   assert.ok(closeAccountRecordsCount >= 1);
   assert.ok(updatePanelModeCount >= 1);

@@ -80,6 +80,89 @@ test('platform verify module supports codex2api protocol callback exchange', asy
   }
 });
 
+test('platform verify module submits manager callback through rpc', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, 'http://localhost:48760/rpc');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers['X-CodexManager-Rpc-Token'], 'manager-token');
+
+    const body = JSON.parse(options.body);
+    assert.equal(body.jsonrpc, '2.0');
+    assert.equal(body.method, 'account/login/complete');
+    assert.deepStrictEqual(body.params, {
+      state: 'oauth-state',
+      code: 'callback-code',
+      redirectUri: 'http://localhost:48760/auth/callback',
+    });
+
+    return {
+      ok: true,
+      json: async () => ({
+        result: {
+          ok: true,
+        },
+      }),
+    };
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+    const completed = [];
+    const logs = [];
+    const executor = api.createStep10Executor({
+      addLog: async (message, level = 'info', options = {}) => {
+        logs.push({ message, level, step: options.step, stepKey: options.stepKey });
+      },
+      chrome: {},
+      closeConflictingTabsForSource: async () => {},
+      completeStepFromBackground: async (step, payload) => {
+        completed.push({ step, payload });
+      },
+      ensureContentScriptReadyOnTab: async () => {},
+      getPanelMode: () => 'manager',
+      getTabId: async () => 0,
+      isLocalhostOAuthCallbackUrl: (value) => String(value || '').includes('/auth/callback?code='),
+      isTabAlive: async () => false,
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeManagerUrl: () => 'http://localhost:48760/rpc',
+      normalizeSub2ApiUrl: (value) => value,
+      rememberSourceLastUrl: async () => {},
+      reuseOrCreateTab: async () => 0,
+      sendToContentScript: async () => ({}),
+      sendToContentScriptResilient: async () => ({}),
+      shouldBypassStep9ForLocalCpa: () => false,
+      SUB2API_STEP9_RESPONSE_TIMEOUT_MS: 120000,
+    });
+
+    await executor.executeStep10({
+      panelMode: 'manager',
+      localhostUrl: 'http://localhost:48760/auth/callback?code=callback-code&state=oauth-state',
+      managerUrl: 'http://localhost:48760',
+      managerRpcToken: 'manager-token',
+      managerLoginId: 'oauth-state',
+      managerOAuthState: 'oauth-state',
+    });
+
+    assert.deepStrictEqual(logs, [
+      { message: '正在向 Manager 提交回调并录入账号...', level: 'info', step: 10, stepKey: 'platform-verify' },
+      { message: 'Manager OAuth 账号录入成功', level: 'ok', step: 10, stepKey: 'platform-verify' },
+    ]);
+    assert.deepStrictEqual(completed, [
+      {
+        step: 10,
+        payload: {
+          localhostUrl: 'http://localhost:48760/auth/callback?code=callback-code&state=oauth-state',
+          verifiedStatus: 'Manager OAuth 账号录入成功',
+        },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('platform verify retries transient SUB2API oauth/token exchange errors before failing', async () => {
   const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
   const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});

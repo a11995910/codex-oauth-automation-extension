@@ -71,6 +71,23 @@ test('navigation utils support codex2api mode and url normalization', () => {
   assert.equal(utils.getPanelModeLabel('codex2api'), 'Codex2API');
 });
 
+test('navigation utils support manager mode and rpc url normalization', () => {
+  const source = fs.readFileSync('background/navigation-utils.js', 'utf8');
+  const globalScope = {};
+
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundNavigationUtils;`)(globalScope);
+  const utils = api.createNavigationUtils({
+    DEFAULT_CODEX2API_URL: 'http://localhost:8080/admin/accounts',
+    DEFAULT_SUB2API_URL: 'https://sub.example.com/admin/accounts',
+    normalizeLocalCpaStep9Mode: (value) => value,
+  });
+
+  assert.equal(utils.normalizeManagerUrl('localhost:48760'), 'http://localhost:48760/rpc');
+  assert.equal(utils.normalizeManagerUrl('http://localhost:48760/auth/callback'), 'http://localhost:48760/rpc');
+  assert.equal(utils.getPanelMode({ panelMode: 'manager' }), 'manager');
+  assert.equal(utils.getPanelModeLabel('manager'), 'Manager');
+});
+
 test('navigation utils leaves SUB2API url empty when no default is configured', () => {
   const source = fs.readFileSync('background/navigation-utils.js', 'utf8');
   const globalScope = {};

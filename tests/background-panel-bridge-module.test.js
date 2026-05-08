@@ -117,6 +117,66 @@ test('panel bridge can request cpa oauth url via management api', async () => {
   }
 });
 
+test('panel bridge can request manager oauth url via rpc', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    assert.equal(url, 'http://localhost:48760/rpc');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers['X-CodexManager-Rpc-Token'], 'manager-token');
+
+    const body = JSON.parse(options.body);
+    assert.equal(body.jsonrpc, '2.0');
+    assert.equal(body.method, 'account/login/start');
+    assert.deepStrictEqual(body.params, {
+      type: 'chatgpt',
+      openBrowser: false,
+      tags: 'codex,test',
+      note: '测试备注',
+    });
+
+    return {
+      ok: true,
+      json: async () => ({
+        result: {
+          type: 'chatgpt',
+          loginId: 'state-1',
+          authUrl: 'https://auth.openai.com/oauth/authorize?state=state-1',
+        },
+      }),
+    };
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+    const bridge = api.createPanelBridge({
+      addLog: async () => {},
+      getPanelMode: () => 'manager',
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeManagerUrl: () => 'http://localhost:48760/rpc',
+      normalizeSub2ApiUrl: (value) => value,
+      DEFAULT_SUB2API_GROUP_NAME: 'codex',
+      SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+    });
+
+    const result = await bridge.requestOAuthUrlFromPanel({
+      panelMode: 'manager',
+      managerUrl: 'localhost:48760',
+      managerRpcToken: 'manager-token',
+      managerTags: 'codex,test',
+      managerNote: '测试备注',
+    }, { logLabel: '步骤 7' });
+
+    assert.deepStrictEqual(result, {
+      oauthUrl: 'https://auth.openai.com/oauth/authorize?state=state-1',
+      managerLoginId: 'state-1',
+      managerOAuthState: 'state-1',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('panel bridge rejects cpa oauth url without state', async () => {
   const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
   const originalFetch = globalThis.fetch;
