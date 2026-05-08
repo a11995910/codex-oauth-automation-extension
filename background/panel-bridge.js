@@ -254,6 +254,9 @@
       const sub2apiUrl = normalizeSub2ApiUrl(state.sub2apiUrl);
       const groupName = (state.sub2apiGroupName || DEFAULT_SUB2API_GROUP_NAME).trim() || DEFAULT_SUB2API_GROUP_NAME;
 
+      if (!sub2apiUrl) {
+        throw new Error('SUB2API URL is not configured. Please fill it in the side panel first.');
+      }
       if (!state.sub2apiEmail) {
         throw new Error('尚未配置 SUB2API 登录邮箱，请先在侧边栏填写。');
       }

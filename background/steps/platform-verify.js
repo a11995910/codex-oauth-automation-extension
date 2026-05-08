@@ -363,6 +363,9 @@
       }
 
       const sub2apiUrl = normalizeSub2ApiUrl(state.sub2apiUrl);
+      if (!sub2apiUrl) {
+        throw new Error('SUB2API URL is not configured. Please fill it in the side panel first.');
+      }
       const injectFiles = ['content/utils.js', 'content/sub2api-panel.js'];
 
       await addStepLog(visibleStep, '正在打开 SUB2API 后台...');

@@ -237,7 +237,7 @@ const STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS = 8;
 const OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
 const SUB2API_STEP1_RESPONSE_TIMEOUT_MS = 90000;
 const SUB2API_STEP9_RESPONSE_TIMEOUT_MS = 120000;
-const DEFAULT_SUB2API_URL = 'https://sub2api.hisence.fun/admin/accounts';
+const DEFAULT_SUB2API_URL = '';
 const DEFAULT_CODEX2API_URL = 'http://localhost:8080/admin/accounts';
 const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
 const DEFAULT_SUB2API_GROUP_NAME = 'codex';
@@ -2320,15 +2320,23 @@ function normalizePersistentSettingValue(key, value) {
       );
     case 'gopayHelperApiUrl':
       {
-        const legacyGpcHelperApiUrl = 'https://gpc.leftcode.xyz';
         const defaultGpcHelperApiUrl = PERSISTED_SETTING_DEFAULTS.gopayHelperApiUrl
           || (typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined' ? DEFAULT_GPC_HELPER_API_URL : 'https://gpc.qlhazycoder.top');
         const normalizedGpcHelperApiUrl = self.GoPayUtils?.normalizeGpcHelperBaseUrl
           ? self.GoPayUtils.normalizeGpcHelperBaseUrl(value || defaultGpcHelperApiUrl)
           : String(value || defaultGpcHelperApiUrl).trim().replace(/\/+$/g, '');
-        return normalizedGpcHelperApiUrl === legacyGpcHelperApiUrl
-          ? defaultGpcHelperApiUrl
-          : normalizedGpcHelperApiUrl;
+        if (!self.GoPayUtils?.normalizeGpcHelperBaseUrl) {
+          try {
+            const parsed = new URL(normalizedGpcHelperApiUrl);
+            const hostname = parsed.hostname.toLowerCase();
+            if (hostname !== 'gpc.qlhazycoder.top' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+              return defaultGpcHelperApiUrl;
+            }
+          } catch {
+            return defaultGpcHelperApiUrl;
+          }
+        }
+        return normalizedGpcHelperApiUrl;
       }
     case 'gopayHelperApiKey':
     case 'gopayHelperCardKey':
@@ -6809,6 +6817,7 @@ function normalizeSub2ApiUrl(rawUrl) {
     return navigationUtils.normalizeSub2ApiUrl(rawUrl);
   }
   const input = (rawUrl || '').trim() || DEFAULT_SUB2API_URL;
+  if (!input) return '';
   const withProtocol = /^https?:\/\//i.test(input) ? input : `https://${input}`;
   const parsed = new URL(withProtocol);
   if (!parsed.pathname || parsed.pathname === '/') {

@@ -40,29 +40,64 @@
       return /缺少|未配置|请输入|无效|错误|失败|401|认证失败|未授权|unauthorized|invalid/i.test(message);
     }
 
+    function normalizeStep7IdentifierType(value = '') {
+      const normalized = String(value || '').trim().toLowerCase();
+      return normalized === 'phone' || normalized === 'email' ? normalized : '';
+    }
+
+    function normalizeStep7SignupMethod(value = '') {
+      return String(value || '').trim().toLowerCase() === 'phone' ? 'phone' : 'email';
+    }
+
+    function canUseConfiguredPhoneSignup(state = {}) {
+      return normalizeStep7SignupMethod(state?.signupMethod) === 'phone'
+        && Boolean(state?.phoneVerificationEnabled)
+        && !Boolean(state?.plusModeEnabled)
+        && !Boolean(state?.contributionMode);
+    }
+
+    function resolveStep7LoginIdentifierType(state = {}, fallbackType = '') {
+      const explicitIdentifierType = normalizeStep7IdentifierType(state?.accountIdentifierType);
+      if (explicitIdentifierType) {
+        return explicitIdentifierType;
+      }
+
+      const frozenSignupMethod = normalizeStep7IdentifierType(state?.resolvedSignupMethod);
+      if (frozenSignupMethod) {
+        return frozenSignupMethod;
+      }
+
+      if (canUseConfiguredPhoneSignup(state)) {
+        return 'phone';
+      }
+
+      return normalizeStep7IdentifierType(fallbackType) || 'email';
+    }
+
     async function executeStep7(state) {
       const visibleStep = Math.floor(Number(state?.visibleStep) || 0);
       const completionStep = visibleStep > 0 ? visibleStep : 7;
-      const resolvedIdentifierType = String(
-        state?.accountIdentifierType
-        || (state?.signupPhoneNumber ? 'phone' : '')
-        || ''
-      ).trim().toLowerCase() === 'phone'
-        ? 'phone'
-        : 'email';
-      const phoneNumber = String(
-        state?.signupPhoneNumber
-        || (resolvedIdentifierType === 'phone' ? state?.accountIdentifier : '')
-        || state?.signupPhoneCompletedActivation?.phoneNumber
-        || state?.signupPhoneActivation?.phoneNumber
-        || ''
-      ).trim();
-      const email = String(
-        state?.email
-        || (resolvedIdentifierType === 'email' ? state?.accountIdentifier : '')
-        || ''
-      ).trim();
-      if (!email && !phoneNumber) {
+      const resolvedIdentifierType = resolveStep7LoginIdentifierType(state);
+      const phoneNumber = resolvedIdentifierType === 'phone'
+        ? String(
+          state?.signupPhoneNumber
+          || (normalizeStep7IdentifierType(state?.accountIdentifierType) === 'phone' ? state?.accountIdentifier : '')
+          || state?.signupPhoneCompletedActivation?.phoneNumber
+          || state?.signupPhoneActivation?.phoneNumber
+          || ''
+        ).trim()
+        : '';
+      const email = resolvedIdentifierType === 'email'
+        ? String(
+          state?.email
+          || (normalizeStep7IdentifierType(state?.accountIdentifierType) === 'email' ? state?.accountIdentifier : '')
+          || ''
+        ).trim()
+        : '';
+      if (
+        (resolvedIdentifierType === 'phone' && !phoneNumber)
+        || (resolvedIdentifierType !== 'phone' && !email)
+      ) {
         throw new Error('缺少登录账号：请先完成步骤 2，或在侧栏“注册邮箱/注册手机号”中手动填写账号后再执行当前步骤。');
       }
 
@@ -75,25 +110,23 @@
         try {
           const currentState = attempt === 1 ? state : await getState();
           const password = currentState.password || currentState.customPassword || '';
-          const currentIdentifierType = String(
-            currentState?.accountIdentifierType
-            || (currentState?.signupPhoneNumber ? 'phone' : '')
-            || resolvedIdentifierType
-          ).trim().toLowerCase() === 'phone'
-            ? 'phone'
-            : 'email';
-          const currentPhoneNumber = String(
-            currentState?.signupPhoneNumber
-            || (currentIdentifierType === 'phone' ? currentState?.accountIdentifier : '')
-            || currentState?.signupPhoneCompletedActivation?.phoneNumber
-            || currentState?.signupPhoneActivation?.phoneNumber
-            || phoneNumber
-          ).trim();
-          const currentEmail = String(
-            currentState?.email
-            || (currentIdentifierType === 'email' ? currentState?.accountIdentifier : '')
-            || email
-          ).trim();
+          const currentIdentifierType = resolveStep7LoginIdentifierType(currentState, resolvedIdentifierType);
+          const currentPhoneNumber = currentIdentifierType === 'phone'
+            ? String(
+              currentState?.signupPhoneNumber
+              || (normalizeStep7IdentifierType(currentState?.accountIdentifierType) === 'phone' ? currentState?.accountIdentifier : '')
+              || currentState?.signupPhoneCompletedActivation?.phoneNumber
+              || currentState?.signupPhoneActivation?.phoneNumber
+              || phoneNumber
+            ).trim()
+            : '';
+          const currentEmail = currentIdentifierType === 'email'
+            ? String(
+              currentState?.email
+              || (normalizeStep7IdentifierType(currentState?.accountIdentifierType) === 'email' ? currentState?.accountIdentifier : '')
+              || email
+            ).trim()
+            : '';
           const accountIdentifier = currentIdentifierType === 'phone'
             ? currentPhoneNumber
             : currentEmail;

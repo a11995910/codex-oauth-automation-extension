@@ -3484,6 +3484,10 @@ function summarizePhoneInputCandidate(element, options = {}) {
   const normalizedName = summary.name.toLowerCase();
   const normalizedId = summary.id.toLowerCase();
   const combinedText = `${normalizedName} ${normalizedId} ${summary.placeholder} ${summary.ariaLabel}`;
+  if (isLoginEmailLikeInput(element)) {
+    summary.skipReason = 'email_like';
+    return summary;
+  }
   if (
     summary.type === 'tel'
     || summary.autocomplete === 'tel'
@@ -3517,14 +3521,50 @@ function findUsablePhoneInput(selector, options = {}) {
     .find((element) => isUsablePhoneInputElement(element, options)) || null;
 }
 
+function getLoginInputAttributeText(input) {
+  return {
+    type: String(input?.getAttribute?.('type') || input?.type || '').trim().toLowerCase(),
+    autocomplete: String(input?.getAttribute?.('autocomplete') || '').trim().toLowerCase(),
+    name: String(input?.getAttribute?.('name') || input?.name || '').trim(),
+    id: String(input?.getAttribute?.('id') || input?.id || '').trim(),
+    placeholder: String(input?.getAttribute?.('placeholder') || '').trim(),
+    ariaLabel: String(input?.getAttribute?.('aria-label') || '').trim(),
+  };
+}
+
+function isLoginEmailLikeInput(input) {
+  const summary = getLoginInputAttributeText(input);
+  const nameId = `${summary.name} ${summary.id}`;
+  const labelText = `${summary.placeholder} ${summary.ariaLabel}`;
+  return summary.type === 'email'
+    || summary.autocomplete === 'email'
+    || /email/i.test(nameId)
+    || /email|电子邮件|邮箱/i.test(labelText);
+}
+
 function getLoginEmailInput() {
-  const input = document.querySelector(
-    'input[type="email"], input[name="email"], input[name="username"], input[id*="email"], input[placeholder*="email" i], input[placeholder*="Email"]'
-  );
-  if (isLoginPhoneUsernameKind() || isLoginPhoneEntryPageText()) {
+  const input = Array.from(document.querySelectorAll([
+    'input[type="email"]',
+    'input[autocomplete="email"]',
+    'input[name="email"]',
+    'input[name="username"]',
+    'input[autocomplete="username"]',
+    'input[id*="email" i]',
+    'input[placeholder*="email" i]',
+    'input[placeholder*="Email"]',
+    'input[placeholder*="电子邮件"]',
+    'input[placeholder*="邮箱"]',
+    'input[aria-label*="email" i]',
+    'input[aria-label*="电子邮件"]',
+    'input[aria-label*="邮箱"]',
+  ].join(', '))).find((candidate) => isVisibleElement(candidate)) || null;
+  if (!input) {
     return null;
   }
-  return input && isVisibleElement(input) ? input : null;
+  if ((isLoginPhoneUsernameKind() || isLoginPhoneEntryPageText()) && !isLoginEmailLikeInput(input)) {
+    return null;
+  }
+  return input;
 }
 
 function getLoginPhoneInput() {
@@ -5162,9 +5202,9 @@ async function step6OpenLoginEntry(payload, snapshot) {
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   const preferPhoneLogin = String(payload?.loginIdentifierType || '').trim() === 'phone' || (!payload?.email && payload?.phoneNumber);
-  const trigger = preferPhoneLogin
-    ? (currentSnapshot.phoneEntryTrigger || findLoginPhoneEntryTrigger())
-    : (currentSnapshot.loginEntryTrigger || findLoginEntryTrigger());
+  const genericEntryTrigger = currentSnapshot.loginEntryTrigger || findLoginEntryTrigger();
+  const phoneEntryTrigger = currentSnapshot.phoneEntryTrigger || findLoginPhoneEntryTrigger();
+  const trigger = genericEntryTrigger || (preferPhoneLogin ? phoneEntryTrigger : null);
   if (!trigger || !isActionEnabled(trigger)) {
     return createStep6RecoverableResult('missing_login_entry_trigger', currentSnapshot, {
       message: preferPhoneLogin

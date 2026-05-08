@@ -37,12 +37,10 @@
     const MAIL2925_COOKIE_DOMAINS = [
       '2925.com',
       'www.2925.com',
-      'mail2.xiyouji.com',
     ];
     const MAIL2925_COOKIE_ORIGINS = [
       'https://2925.com',
       'https://www.2925.com',
-      'https://mail2.xiyouji.com',
     ];
     const MAIL2925_LIMIT_ERROR_PREFIX = 'MAIL2925_LIMIT_REACHED::';
     const MAIL2925_THREAD_TERMINATED_ERROR_PREFIX = 'MAIL2925_THREAD_TERMINATED::';

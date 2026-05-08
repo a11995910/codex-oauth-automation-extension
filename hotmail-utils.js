@@ -6,7 +6,6 @@
 
   root.HotmailUtils = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createHotmailUtils() {
-  const HOTMAIL_MAIL_API_URL = 'https://apple.882263.xyz/api/mail-new';
   const HOTMAIL_SERVICE_MODE_REMOTE = 'remote';
   const HOTMAIL_SERVICE_MODE_LOCAL = 'local';
 
@@ -287,8 +286,11 @@
     return list.map((message) => normalizeHotmailMailApiMessage(message));
   }
 
-  function buildHotmailMailApiLatestUrl(options) {
-    const apiUrl = String(options?.apiUrl || '').trim() || HOTMAIL_MAIL_API_URL;
+  function buildHotmailMailApiLatestUrl(options = {}) {
+    const apiUrl = String(options?.apiUrl || '').trim();
+    if (!apiUrl) {
+      throw new Error('Hotmail mail API URL is required.');
+    }
     const url = new URL(apiUrl);
     url.searchParams.set('refresh_token', String(options?.refreshToken || ''));
     url.searchParams.set('client_id', String(options?.clientId || ''));

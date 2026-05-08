@@ -358,6 +358,106 @@ test('step 7 forwards phone login identity payload when account identifier is ph
   ]);
 });
 
+test('step 7 keeps Plus email login even when phone sms runtime exists', async () => {
+  const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    payloads: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async () => {},
+    completeStepFromBackground: async () => {},
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({
+      plusModeEnabled: true,
+      phoneVerificationEnabled: true,
+      signupMethod: 'phone',
+      email: 'plus.user@example.com',
+      password: 'secret',
+      signupPhoneNumber: '+441111111111',
+    }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => 'https://oauth.example/latest',
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_sourceName, message) => {
+      events.payloads.push(message.payload);
+      return {
+        step6Outcome: 'success',
+        state: 'verification_page',
+        loginVerificationRequestedAt: 123456,
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    plusModeEnabled: true,
+    phoneVerificationEnabled: true,
+    signupMethod: 'phone',
+    email: 'plus.user@example.com',
+    password: 'secret',
+    signupPhoneNumber: '+441111111111',
+    visibleStep: 10,
+  });
+
+  assert.equal(events.payloads[0].loginIdentifierType, 'email');
+  assert.equal(events.payloads[0].email, 'plus.user@example.com');
+  assert.equal(events.payloads[0].phoneNumber, '');
+  assert.equal(events.payloads[0].accountIdentifier, 'plus.user@example.com');
+});
+
+test('step 7 can infer phone login from an available phone signup configuration before step 2 finishes', async () => {
+  const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    payloads: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async () => {},
+    completeStepFromBackground: async () => {},
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({
+      phoneVerificationEnabled: true,
+      signupMethod: 'phone',
+      signupPhoneNumber: '+447780579093',
+    }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => 'https://oauth.example/latest',
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async (_sourceName, message) => {
+      events.payloads.push(message.payload);
+      return {
+        step6Outcome: 'success',
+        state: 'phone_verification_page',
+        loginVerificationRequestedAt: 987654,
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    phoneVerificationEnabled: true,
+    signupMethod: 'phone',
+    signupPhoneNumber: '+447780579093',
+  });
+
+  assert.equal(events.payloads[0].loginIdentifierType, 'phone');
+  assert.equal(events.payloads[0].phoneNumber, '+447780579093');
+  assert.equal(events.payloads[0].email, '');
+});
+
 test('step 7 can start from a manually filled signup phone without completed step 2 or step 3 state', async () => {
   const source = fs.readFileSync('background/steps/oauth-login.js', 'utf8');
   const globalScope = {};

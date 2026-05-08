@@ -358,18 +358,26 @@ test('pickVerificationMessageWithTimeFallback can ignore afterTimestamp while ke
 
 test('buildHotmailMailApiLatestUrl includes email, client id, refresh token, and mailbox', () => {
   const url = new URL(buildHotmailMailApiLatestUrl({
+    apiUrl: 'https://example.com/api/mail-new',
     clientId: 'client-123',
     email: 'user@hotmail.com',
     refreshToken: 'refresh-token-xyz',
     mailbox: 'Junk',
   }));
 
-  assert.equal(url.origin + url.pathname, 'https://apple.882263.xyz/api/mail-new');
+  assert.equal(url.origin + url.pathname, 'https://example.com/api/mail-new');
   assert.equal(url.searchParams.get('client_id'), 'client-123');
   assert.equal(url.searchParams.get('email'), 'user@hotmail.com');
   assert.equal(url.searchParams.get('refresh_token'), 'refresh-token-xyz');
   assert.equal(url.searchParams.get('mailbox'), 'Junk');
   assert.equal(url.searchParams.get('response_type'), 'json');
+});
+
+test('buildHotmailMailApiLatestUrl requires an explicit api url', () => {
+  assert.throws(
+    () => buildHotmailMailApiLatestUrl({ email: 'user@hotmail.com' }),
+    /Hotmail mail API URL is required/
+  );
 });
 
 test('buildHotmailMailApiLatestUrl supports custom api url and can omit response_type', () => {

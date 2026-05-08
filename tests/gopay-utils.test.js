@@ -28,6 +28,7 @@ test('GoPay utils builds GPC queue task and balance URLs from helper endpoints',
   const api = loadGoPayUtils();
   assert.equal(api.DEFAULT_GPC_HELPER_API_URL, 'https://gpc.qlhazycoder.top');
   assert.equal(api.normalizeGpcHelperBaseUrl(''), 'https://gpc.qlhazycoder.top');
+  assert.equal(api.normalizeGpcHelperBaseUrl('https://example.com/api/gp/tasks'), 'https://gpc.qlhazycoder.top');
   assert.equal(
     api.buildGpcHelperApiUrl('', '/api/checkout/start'),
     'https://gpc.qlhazycoder.top/api/checkout/start'

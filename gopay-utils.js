@@ -5,7 +5,7 @@
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
   const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
-  const LEGACY_GPC_HELPER_API_URL = 'https://gpc.leftcode.xyz';
+  const ALLOWED_GPC_HELPER_REMOTE_HOST = 'gpc.qlhazycoder.top';
 
   function normalizePlusPaymentMethod(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
@@ -67,10 +67,17 @@
     normalized = normalized.replace(/\/api\/gp\/balance(?:\?.*)?$/i, '');
     normalized = normalized.replace(/\/api\/card\/balance(?:\?.*)?$/i, '');
     normalized = normalized.replace(/\/api\/card\/redeem-api-key(?:\?.*)?$/i, '');
-    if (normalized === LEGACY_GPC_HELPER_API_URL) {
+
+    try {
+      const parsed = new URL(normalized);
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === ALLOWED_GPC_HELPER_REMOTE_HOST || hostname === 'localhost' || hostname === '127.0.0.1') {
+        return normalized || DEFAULT_GPC_HELPER_API_URL;
+      }
+      return DEFAULT_GPC_HELPER_API_URL;
+    } catch {
       return DEFAULT_GPC_HELPER_API_URL;
     }
-    return normalized || DEFAULT_GPC_HELPER_API_URL;
   }
 
   function buildGpcHelperApiUrl(apiUrl = '', path = '') {

@@ -19,6 +19,7 @@
 
     function normalizeSub2ApiUrl(rawUrl) {
       const input = (rawUrl || '').trim() || DEFAULT_SUB2API_URL;
+      if (!input) return '';
       const withProtocol = /^https?:\/\//i.test(input) ? input : `https://${input}`;
       const parsed = new URL(withProtocol);
       if (!parsed.pathname || parsed.pathname === '/') {
