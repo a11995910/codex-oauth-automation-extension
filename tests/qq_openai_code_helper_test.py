@@ -58,6 +58,10 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
             helper.extract_alias_from_text("客户邮箱：Paste-Demo@duck.com 请查询"),
             "paste-demo@duck.com",
         )
+        self.assertEqual(
+            helper.extract_alias_from_text("客户邮箱：User-Demo@2925.com 请查询"),
+            "user-demo@2925.com",
+        )
 
     def test_record_matches_query_by_duck_alias(self):
         record = {
@@ -72,6 +76,19 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
         self.assertTrue(helper.record_matches_query(record, "second@duck.com"))
         self.assertFalse(helper.record_matches_query(record, "missing@duck.com"))
 
+    def test_record_matches_query_by_generic_email_alias(self):
+        record = {
+            "primaryAlias": "first@2925.com",
+            "aliases": ["first@2925.com", "second@2925.com"],
+            "subject": "Your ChatGPT code is 222333",
+            "sender": "OpenAI",
+            "preview": "Enter this code",
+            "recipients": ["second@2925.com"],
+        }
+
+        self.assertTrue(helper.record_matches_query(record, "second@2925.com"))
+        self.assertFalse(helper.record_matches_query(record, "missing@2925.com"))
+
     def test_persist_config_and_records_to_database(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = pathlib.Path(tmpdir) / "helper.sqlite3"
@@ -81,16 +98,16 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
             try:
                 helper.init_database()
                 config = {
-                    "email": "demo@qq.com",
-                    "password": "imap-auth-code",
-                    "imap_host": "imap.qq.com",
+                    "email": "demo@2925.com",
+                    "password": "mail-password-or-code",
+                    "imap_host": "imap.2925mail.com",
                     "imap_port": 993,
                     "mailboxes": ["INBOX"],
                     "max_messages": 20,
                     "poll_interval_seconds": 6,
                 }
                 helper.save_config_to_db(config)
-                self.assertEqual(helper.load_config_from_db()["email"], "demo@qq.com")
+                self.assertEqual(helper.load_config_from_db()["email"], "demo@2925.com")
 
                 record = {
                     "id": "INBOX:100",
