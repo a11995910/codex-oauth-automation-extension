@@ -583,6 +583,20 @@
       return [normalizedPreferred, ...withoutPreferred];
     }
 
+    function shouldUseStrictSmsBowerPreferredPrice(provider, preferredPrice = null) {
+      const preferred = Number(preferredPrice);
+      return normalizePhoneSmsProvider(provider) === PHONE_SMS_PROVIDER_SMSBOWER
+        && Number.isFinite(preferred)
+        && preferred > 0;
+    }
+
+    function resolveProviderPriceCandidates(provider, prices = [], acquirePriority = HERO_SMS_ACQUIRE_PRIORITY_COUNTRY, preferredPrice = null) {
+      if (shouldUseStrictSmsBowerPreferredPrice(provider, preferredPrice)) {
+        return [Math.round(Number(preferredPrice) * 10000) / 10000];
+      }
+      return reorderPriceCandidates(prices, acquirePriority, preferredPrice);
+    }
+
     function filterPriceCandidatesAboveFloor(prices = [], minExclusivePrice = null) {
       const floor = normalizeHeroSmsPrice(minExclusivePrice);
       if (floor === null || floor <= 0) {
@@ -2153,6 +2167,7 @@
       let retriedWithUpdatedPrice = false;
       let retriedWithoutPrice = false;
       const userLimit = normalizeHeroSmsPriceLimit(options.userLimit);
+      const strictPrice = Boolean(options.strictPrice);
 
       while (true) {
         try {
@@ -2168,6 +2183,11 @@
             && !retriedWithUpdatedPrice
             && updatedMaxPrice !== null
           ) {
+            if (strictPrice) {
+              throw new Error(
+                `${getPhoneSmsProviderLabel(config.provider)} ${action} failed: WRONG_MAX_PRICE requires ${updatedMaxPrice}, but strict preferred price is ${nextMaxPrice}.`
+              );
+            }
             if (userLimit !== null && updatedMaxPrice > userLimit) {
               throw new Error(
                 `HeroSMS ${action} failed: WRONG_MAX_PRICE requires ${updatedMaxPrice}, which exceeds configured maxPrice=${userLimit}.`
@@ -2182,6 +2202,7 @@
             nextMaxPrice !== null
             && nextMaxPrice !== undefined
             && !retriedWithoutPrice
+            && !strictPrice
             && isNetworkFetchFailure(error)
           ) {
             nextMaxPrice = null;
@@ -3189,7 +3210,7 @@
         ) {
           for (const attempt of countryAttempts) {
             const pricePlan = await resolvePhoneActivationPricePlan(config, attempt.countryConfig, heroCompatiblePriceState);
-            const orderedPrices = reorderPriceCandidates(pricePlan?.prices, acquirePriority, preferredPriceTier);
+            const orderedPrices = resolveProviderPriceCandidates(config.provider, pricePlan?.prices, acquirePriority, preferredPriceTier);
             const numericPrices = Array.isArray(orderedPrices)
               ? orderedPrices
                   .map((value) => Number(value))
@@ -3242,7 +3263,7 @@
           const pricePlan = attempt.pricePlan || await resolvePhoneActivationPricePlan(config, countryConfig, heroCompatiblePriceState);
           let noNumbersObservedInCountry = false;
 
-          const orderedPrices = reorderPriceCandidates(pricePlan.prices, acquirePriority, preferredPriceTier);
+          const orderedPrices = resolveProviderPriceCandidates(config.provider, pricePlan.prices, acquirePriority, preferredPriceTier);
           const floorFilteredPrices = filterPriceCandidatesAboveFloor(orderedPrices, countryPriceFloor);
           const hasCountryPriceFloor = (
             countryPriceFloor !== null
@@ -3323,9 +3344,10 @@
                   maxPrice,
                   {
                     userLimit: pricePlan.userLimit,
-                    fixedPrice,
-                  }
-                );
+                  fixedPrice,
+                  strictPrice: shouldUseStrictSmsBowerPreferredPrice(config.provider, preferredPriceTier),
+                }
+              );
                 const activation = parseActivationPayload(payload, buildFallbackActivation(requestAction));
                 if (activation) {
                   const numericPrice = Number(maxPrice);

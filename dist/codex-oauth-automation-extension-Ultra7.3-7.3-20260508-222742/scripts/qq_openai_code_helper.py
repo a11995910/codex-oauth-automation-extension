@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""QQ 邮箱 OpenAI 验证码本地查询页面。
+"""IMAP 邮箱 OpenAI 验证码本地查询页面。
 
 用途：
-- 通过 QQ 邮箱 IMAP 授权码读取收件箱。
-- 识别 DuckDuckGo 虚拟邮箱转发来的 OpenAI / ChatGPT 验证码。
-- 在本地页面输入某个 @duck.com 地址，快速查询对应验证码。
+- 通过邮箱 IMAP 读取收件箱。
+- 识别邮箱里 OpenAI / ChatGPT 验证码。
+- 在页面输入邮箱地址，快速查询对应验证码。
 
 安全边界：
 - 服务默认只监听 127.0.0.1。
-- QQ 邮箱授权码会写入本地 SQLite 数据库，方便服务重启后继续扫描。
+- IMAP 登录密码或授权码会写入本地 SQLite 数据库，方便服务重启后继续扫描。
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 HOST = "127.0.0.1"
 PORT = 18769
-DEFAULT_IMAP_HOST = "imap.qq.com"
+DEFAULT_IMAP_HOST = "imap.2925mail.com"
 DEFAULT_IMAP_PORT = 993
 DEFAULT_MAILBOXES = ["INBOX"]
 DEFAULT_MAX_MESSAGES = 80
@@ -57,8 +57,9 @@ OPENAI_KEYWORDS = (
     "验证码",
     "代码",
 )
-DUCK_KEYWORDS = ("duckduckgo", "duck.com", "forwarded")
-ALIAS_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@duck\.com\b", re.IGNORECASE)
+FORWARD_KEYWORDS = ("duckduckgo", "duck.com", "forwarded")
+EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+ALIAS_PATTERN = EMAIL_PATTERN
 CODE_PATTERNS = (
     re.compile(r"(?:代码为|验证码[^0-9]*?)[\s：:]*(\d{6})"),
     re.compile(r"(?:chatgpt\s+log-?in\s+code|enter\s+this\s+code)[^0-9]{0,40}(\d{6})", re.IGNORECASE),
@@ -84,14 +85,18 @@ STATE: dict[str, Any] = {
     "running": False,
     "last_scan_at": "",
     "last_error": "",
-    "last_message": "等待配置 QQ 邮箱。",
+    "last_message": "等待配置 IMAP 邮箱。",
     "records": [],
 }
 STOP_EVENT = threading.Event()
 
 
 def get_db_path() -> Path:
-    return Path(os.environ.get("QQ_OPENAI_HELPER_DB_PATH") or DEFAULT_DB_PATH).expanduser()
+    return Path(
+        os.environ.get("IMAP_OPENAI_HELPER_DB_PATH")
+        or os.environ.get("QQ_OPENAI_HELPER_DB_PATH")
+        or DEFAULT_DB_PATH
+    ).expanduser()
 
 
 def db_connect() -> sqlite3.Connection:
@@ -187,6 +192,10 @@ def normalize_alias(value: object) -> str:
 def extract_alias_from_text(value: object) -> str:
     match = ALIAS_PATTERN.search(str(value or ""))
     return normalize_alias(match.group(0)) if match else normalize_alias(value)
+
+
+def is_email_query(value: object) -> bool:
+    return bool(EMAIL_PATTERN.fullmatch(normalize_alias(value)))
 
 
 def parse_mailboxes(value: object) -> list[str]:
@@ -368,7 +377,7 @@ def get_records_for_query(query: str = "", limit: int = RECENT_RECORD_LIMIT) -> 
     sql = "SELECT * FROM mail_records"
     params: list[Any] = []
     if target:
-        if "@duck.com" in target:
+        if is_email_query(target):
             sql += " WHERE primary_alias = ? OR aliases_json LIKE ? OR recipients_json LIKE ?"
             like = f"%{target}%"
             params.extend([target, like, like])
@@ -489,8 +498,8 @@ def is_openai_related(message: Message, body_text: str) -> bool:
     subject = decode_mime_header(message.get("Subject", ""))
     combined = f"{sender}\n{subject}\n{body_text}".lower()
     has_openai = any(keyword.lower() in combined for keyword in OPENAI_KEYWORDS)
-    has_duck = any(keyword.lower() in combined for keyword in DUCK_KEYWORDS)
-    return has_openai or has_duck
+    has_forward_marker = any(keyword.lower() in combined for keyword in FORWARD_KEYWORDS)
+    return has_openai or has_forward_marker
 
 
 def parse_message(raw_bytes: bytes, mailbox: str, uid: str) -> dict[str, Any] | None:
@@ -658,7 +667,7 @@ def scan_once() -> list[dict[str, Any]]:
         config = dict(CONFIG)
         configured = bool(STATE.get("configured"))
     if not configured:
-        raise RuntimeError("请先配置 QQ 邮箱和 IMAP 授权码。")
+        raise RuntimeError("请先配置 IMAP 邮箱和密码/授权码。")
     records = fetch_recent_records(config)
     update_records(records)
     return records
@@ -695,7 +704,7 @@ def record_matches_query(record: dict[str, Any], query: str = "") -> bool:
         normalize_alias(record.get("preview")),
         "\n".join(normalize_alias(item) for item in record.get("recipients") or []),
     ])
-    if "@duck.com" in target:
+    if is_email_query(target):
         return target in aliases or normalize_alias(record.get("primaryAlias")) == target
     return target in searchable
 
@@ -727,10 +736,10 @@ def read_json_payload(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
 
 
 class HelperHandler(BaseHTTPRequestHandler):
-    server_version = "QQOpenAICodeHelper/1.0"
+    server_version = "IMAPOpenAICodeHelper/1.0"
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
-        print(f"[QQOpenAIHelper] {self.address_string()} {format % args}", flush=True)
+        print(f"[IMAPCodeHelper] {self.address_string()} {format % args}", flush=True)
 
     def do_OPTIONS(self) -> None:
         json_response(self, 200, {"ok": True})
@@ -800,16 +809,16 @@ class HelperHandler(BaseHTTPRequestHandler):
 
 
 def apply_config(payload: dict[str, Any]) -> None:
-    qq_email = str(payload.get("email") or "").strip()
+    imap_email = str(payload.get("email") or "").strip()
     password = str(payload.get("password") or "").strip()
-    if not qq_email or "@" not in qq_email:
-        raise RuntimeError("请填写完整 QQ 邮箱地址。")
+    if not is_email_query(imap_email):
+        raise RuntimeError("请填写完整邮箱地址。")
     with STATE_LOCK:
         previous_password = str(CONFIG.get("password") or "")
     if not password:
         password = previous_password
     if not password:
-        raise RuntimeError("请填写 QQ 邮箱 IMAP 授权码。")
+        raise RuntimeError("请填写 IMAP 密码或授权码。")
 
     imap_host = str(payload.get("imap_host") or DEFAULT_IMAP_HOST).strip() or DEFAULT_IMAP_HOST
     imap_port = int(payload.get("imap_port") or DEFAULT_IMAP_PORT)
@@ -821,7 +830,7 @@ def apply_config(payload: dict[str, Any]) -> None:
 
     with STATE_LOCK:
         next_config = {
-            "email": qq_email,
+            "email": imap_email,
             "password": password,
             "imap_host": imap_host,
             "imap_port": imap_port,
@@ -830,7 +839,7 @@ def apply_config(payload: dict[str, Any]) -> None:
             "poll_interval_seconds": poll_interval,
         }
         CONFIG.update({
-            "email": qq_email,
+            "email": imap_email,
             "password": password,
             "imap_host": imap_host,
             "imap_port": imap_port,
@@ -851,7 +860,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>QQ OpenAI 验证码后台</title>
+  <title>IMAP OpenAI 验证码后台</title>
   <style>
     :root {
       color-scheme: light;
@@ -979,21 +988,21 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
 <body>
   <header>
     <div class="topline">
-      <h1>QQ OpenAI 验证码后台</h1>
+      <h1>IMAP OpenAI 验证码后台</h1>
       <a class="nav-link" href="/client" target="_blank">打开对客查询页</a>
     </div>
   </header>
   <main>
     <section>
-      <h2>QQ 邮箱配置</h2>
-      <label>QQ 邮箱地址</label>
-      <input id="email" placeholder="name@qq.com" autocomplete="username" />
-      <label>IMAP 授权码</label>
-      <input id="password" type="password" placeholder="QQ 邮箱设置里生成的授权码，不是 QQ 密码" autocomplete="current-password" />
+      <h2>IMAP 邮箱配置</h2>
+      <label>邮箱地址</label>
+      <input id="email" placeholder="name@2925.com" autocomplete="username" />
+      <label>IMAP 密码/授权码</label>
+      <input id="password" type="password" placeholder="2925 邮箱登录密码；如后台提供授权码则填授权码" autocomplete="current-password" />
       <div class="row">
         <div>
           <label>IMAP 主机</label>
-          <input id="imapHost" value="imap.qq.com" />
+          <input id="imapHost" value="imap.2925mail.com" />
         </div>
         <div>
           <label>端口</label>
@@ -1021,8 +1030,8 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
 
     <section>
       <h2>收取邮件记录</h2>
-      <label>虚拟邮箱</label>
-      <input id="alias" placeholder="输入或粘贴 xxxx@duck.com，可筛选记录" autocomplete="off" />
+      <label>查询邮箱</label>
+      <input id="alias" placeholder="输入或粘贴 xxxx@duck.com / name@2925.com，可筛选记录" autocomplete="off" />
       <div class="actions">
         <button id="queryBtn">查询验证码</button>
         <button id="copyBtn" class="secondary">复制验证码</button>
@@ -1087,7 +1096,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
         return;
       }
       $("records").innerHTML = records.slice(0, 20).map((record) => {
-        const alias = record.primaryAlias || (record.aliases || []).join(", ") || "未识别 duck 地址";
+        const alias = record.primaryAlias || (record.aliases || []).join(", ") || "未识别邮箱";
         return `
           <div class="record">
             <div class="record-title">
@@ -1161,7 +1170,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
         latestCode = record?.code || "";
         $("code").textContent = latestCode || "------";
         $("codeMeta").textContent = record
-          ? `${record.primaryAlias || "未识别 duck 地址"} · ${record.subject || ""}`
+          ? `${record.primaryAlias || "未识别邮箱"} · ${record.subject || ""}`
           : "暂无匹配记录";
         renderRecords(records);
       } catch (err) {
@@ -1629,7 +1638,7 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
 
       <section class="pane">
         <div class="query-bar">
-          <input id="queryInput" placeholder="example@duck.com" autocomplete="off" />
+          <input id="queryInput" placeholder="example@duck.com 或 name@2925.com" autocomplete="off" />
           <button id="queryBtn" type="button">查询</button>
           <button id="pasteQueryBtn" class="secondary" type="button">粘贴</button>
           <button id="refreshBtn" class="secondary" type="button">刷新</button>
@@ -1657,8 +1666,8 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
   <script>
     const $ = (id) => document.getElementById(id);
     const accountStorageKey = "qqOpenaiClientAccounts:v1";
-    const duckEmailPattern = /[A-Z0-9._%+-]+@duck\.com/i;
-    const duckEmailGlobalPattern = /[A-Z0-9._%+-]+@duck\.com/ig;
+    const emailPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+    const emailGlobalPattern = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/ig;
     let accounts = [];
     let selectedEmail = "";
     let lastRecords = [];
@@ -1674,8 +1683,12 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
     }
 
     function extractEmail(text) {
-      const match = String(text || "").match(duckEmailPattern);
+      const match = String(text || "").match(emailPattern);
       return (match ? match[0] : String(text || "")).trim().toLowerCase();
+    }
+
+    function isEmail(text) {
+      return emailPattern.test(String(text || "").trim());
     }
 
     function normalizePassword(text) {
@@ -1689,7 +1702,7 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
         const line = rawLine.trim();
         if (!line) continue;
         const email = extractEmail(line);
-        if (!email || !email.includes("@duck.com")) continue;
+        if (!isEmail(email)) continue;
         const emailIndex = line.toLowerCase().indexOf(email);
         const tail = emailIndex >= 0 ? line.slice(emailIndex + email.length) : "";
         const delimiterIndex = tail.indexOf("-----");
@@ -1700,7 +1713,7 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
         }
       }
       if (!entries.length) {
-        for (const email of String(text || "").match(duckEmailGlobalPattern) || []) {
+        for (const email of String(text || "").match(emailGlobalPattern) || []) {
           const normalized = email.toLowerCase();
           if (!seen.has(normalized)) {
             seen.add(normalized);
@@ -1735,7 +1748,7 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
       let changed = 0;
       for (const entry of entries) {
         const email = extractEmail(entry.email);
-        if (!email || !email.includes("@duck.com")) continue;
+        if (!isEmail(email)) continue;
         const index = accounts.findIndex((item) => item.email === email);
         const next = {
           email,
@@ -2049,28 +2062,56 @@ CLIENT_PAGE_HTML = r"""<!doctype html>
 
 
 def start_monitor_thread() -> None:
-    thread = threading.Thread(target=monitor_loop, name="qq-openai-code-monitor", daemon=True)
+    thread = threading.Thread(target=monitor_loop, name="imap-openai-code-monitor", daemon=True)
     thread.start()
 
 
 def apply_env_config() -> None:
-    qq_email = os.environ.get("QQ_OPENAI_HELPER_EMAIL", "").strip()
-    password = os.environ.get("QQ_OPENAI_HELPER_PASSWORD", "").strip()
-    if not qq_email or not password:
+    imap_email = (
+        os.environ.get("IMAP_OPENAI_HELPER_EMAIL")
+        or os.environ.get("QQ_OPENAI_HELPER_EMAIL")
+        or ""
+    ).strip()
+    password = (
+        os.environ.get("IMAP_OPENAI_HELPER_PASSWORD")
+        or os.environ.get("QQ_OPENAI_HELPER_PASSWORD")
+        or ""
+    ).strip()
+    if not imap_email or not password:
         return
     apply_config({
-        "email": qq_email,
+        "email": imap_email,
         "password": password,
-        "imap_host": os.environ.get("QQ_OPENAI_HELPER_IMAP_HOST", DEFAULT_IMAP_HOST),
-        "imap_port": os.environ.get("QQ_OPENAI_HELPER_IMAP_PORT", DEFAULT_IMAP_PORT),
-        "mailboxes": os.environ.get("QQ_OPENAI_HELPER_MAILBOXES", "INBOX"),
-        "max_messages": os.environ.get("QQ_OPENAI_HELPER_MAX_MESSAGES", DEFAULT_MAX_MESSAGES),
-        "poll_interval_seconds": os.environ.get("QQ_OPENAI_HELPER_POLL_INTERVAL_SECONDS", DEFAULT_POLL_INTERVAL_SECONDS),
+        "imap_host": (
+            os.environ.get("IMAP_OPENAI_HELPER_IMAP_HOST")
+            or os.environ.get("QQ_OPENAI_HELPER_IMAP_HOST")
+            or DEFAULT_IMAP_HOST
+        ),
+        "imap_port": (
+            os.environ.get("IMAP_OPENAI_HELPER_IMAP_PORT")
+            or os.environ.get("QQ_OPENAI_HELPER_IMAP_PORT")
+            or DEFAULT_IMAP_PORT
+        ),
+        "mailboxes": (
+            os.environ.get("IMAP_OPENAI_HELPER_MAILBOXES")
+            or os.environ.get("QQ_OPENAI_HELPER_MAILBOXES")
+            or "INBOX"
+        ),
+        "max_messages": (
+            os.environ.get("IMAP_OPENAI_HELPER_MAX_MESSAGES")
+            or os.environ.get("QQ_OPENAI_HELPER_MAX_MESSAGES")
+            or DEFAULT_MAX_MESSAGES
+        ),
+        "poll_interval_seconds": (
+            os.environ.get("IMAP_OPENAI_HELPER_POLL_INTERVAL_SECONDS")
+            or os.environ.get("QQ_OPENAI_HELPER_POLL_INTERVAL_SECONDS")
+            or DEFAULT_POLL_INTERVAL_SECONDS
+        ),
     })
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="QQ 邮箱 OpenAI 验证码本地查询页面")
+    parser = argparse.ArgumentParser(description="IMAP 邮箱 OpenAI 验证码本地查询页面")
     parser.add_argument("--host", default=HOST)
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器页面")
@@ -2084,15 +2125,15 @@ def main() -> None:
 
     server = ThreadingHTTPServer((args.host, args.port), HelperHandler)
     url = f"http://{args.host}:{args.port}/"
-    print(f"[QQOpenAIHelper] listening on {url}", flush=True)
-    print(f"[QQOpenAIHelper] 数据库路径：{get_db_path()}", flush=True)
-    print("[QQOpenAIHelper] QQ 授权码和邮件记录会写入本地数据库，用于重启后继续扫描。", flush=True)
+    print(f"[IMAPCodeHelper] listening on {url}", flush=True)
+    print(f"[IMAPCodeHelper] 数据库路径：{get_db_path()}", flush=True)
+    print("[IMAPCodeHelper] IMAP 密码/授权码和邮件记录会写入本地数据库，用于重启后继续扫描。", flush=True)
     if args.open:
         webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[QQOpenAIHelper] stopping", flush=True)
+        print("\n[IMAPCodeHelper] stopping", flush=True)
     finally:
         STOP_EVENT.set()
         server.server_close()

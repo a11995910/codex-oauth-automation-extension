@@ -144,6 +144,58 @@ test('phone verification helper requests SMSBower numbers through handler API wi
   assert.equal(requests[1].searchParams.get('api_key'), 'bower-key');
 });
 
+test('phone verification helper treats SMSBower preferred price as a strict tier', async () => {
+  const requests = [];
+  const state = {
+    phoneSmsProvider: 'smsbower',
+    smsBowerApiKey: 'bower-key',
+    smsBowerCountryId: 52,
+    smsBowerCountryLabel: 'Thailand',
+    smsBowerServiceCode: 'dr',
+    heroSmsPreferredPrice: '0.008',
+    heroSmsActivationRetryRounds: 1,
+    heroSmsActivationRetryDelayMs: 1,
+  };
+  const helpers = api.createPhoneVerificationHelpers({
+    addLog: async () => {},
+    ensureStep8SignupPageReady: async () => {},
+    fetchImpl: async (url) => {
+      const parsedUrl = new URL(url);
+      requests.push(parsedUrl);
+      const action = parsedUrl.searchParams.get('action');
+      if (action === 'getPrices') {
+        return {
+          ok: true,
+          text: async () => buildHeroSmsPricesPayload({ cost: 0.196, count: 10 }),
+        };
+      }
+      if (action === 'getNumber') {
+        return {
+          ok: true,
+          text: async () => 'NO_NUMBERS',
+        };
+      }
+      throw new Error(`Unexpected SMSBower action: ${action}`);
+    },
+    getState: async () => state,
+    sendToContentScriptResilient: async () => ({}),
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+  });
+
+  await assert.rejects(
+    helpers.requestPhoneActivation(state),
+    /SMSBower 已尝试 1 个候选国家，均无可用号码/
+  );
+
+  const getNumberPrices = requests
+    .filter((requestUrl) => requestUrl.searchParams.get('action') === 'getNumber')
+    .map((requestUrl) => requestUrl.searchParams.get('maxPrice'));
+  assert.deepStrictEqual(getNumberPrices, ['0.008', '0.008']);
+  assert.equal(getNumberPrices.includes('0.196'), false);
+});
+
 test('signup phone helper persists signup runtime state without touching add-phone activation', async () => {
   const setStateCalls = [];
   let currentState = {

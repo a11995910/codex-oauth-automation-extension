@@ -59,6 +59,19 @@
       return message || `Manager RPC 请求失败（HTTP ${responseStatus}）。`;
     }
 
+    function isFetchTransportError(error) {
+      const message = String(typeof error === 'string' ? error : error?.message || '').trim();
+      if (!message) {
+        return false;
+      }
+      return /failed to fetch|networkerror|network error|fetch failed|load failed|net::err_|connection refused|econnrefused|econnreset|timeout|timed out/i.test(message);
+    }
+
+    function createFetchTransportError(label, targetUrl, error) {
+      const reason = String(error?.message || error || '未知网络错误').trim();
+      return new Error(`${label}网络请求失败：${targetUrl}；原因：${reason}。请确认服务地址可访问、端口正确、证书有效，且浏览器代理或系统网络允许访问该地址。`);
+    }
+
     function unwrapJsonRpcPayload(payload) {
       if (payload?.error) {
         throw new Error(getManagerRpcErrorMessage(payload, 200));
@@ -113,7 +126,8 @@
           headers['X-Management-Key'] = managementKey;
         }
 
-        const response = await fetch(`${origin}${path}`, {
+        const requestUrl = `${origin}${path}`;
+        const response = await fetch(requestUrl, {
           method: options.method || 'POST',
           headers,
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -135,6 +149,9 @@
       } catch (error) {
         if (error?.name === 'AbortError') {
           throw new Error('CPA 管理接口请求超时，请稍后重试。');
+        }
+        if (isFetchTransportError(error)) {
+          throw createFetchTransportError('CPA 管理接口', `${origin}${path}`, error);
         }
         throw error;
       } finally {
@@ -184,6 +201,9 @@
         if (error?.name === 'AbortError') {
           throw new Error('Manager RPC 请求超时，请检查 Manager 服务是否运行。');
         }
+        if (isFetchTransportError(error)) {
+          throw createFetchTransportError('Manager RPC', managerUrl, error);
+        }
         throw error;
       } finally {
         clearTimeout(timer);
@@ -196,7 +216,8 @@
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        const response = await fetch(`${origin}${path}`, {
+        const requestUrl = `${origin}${path}`;
+        const response = await fetch(requestUrl, {
           method: options.method || 'POST',
           headers: {
             Accept: 'application/json',
@@ -222,6 +243,9 @@
       } catch (error) {
         if (error?.name === 'AbortError') {
           throw new Error('Codex2API 请求超时，请稍后重试。');
+        }
+        if (isFetchTransportError(error)) {
+          throw createFetchTransportError('Codex2API', `${origin}${path}`, error);
         }
         throw error;
       } finally {
@@ -255,10 +279,22 @@
       const origin = deriveCpaManagementOrigin(state.vpsUrl);
 
       await addLog(`${logLabel}：正在通过 CPA 管理接口获取 OAuth 授权链接...`);
-      const result = await fetchCpaManagementJson(origin, '/v0/management/codex-auth-url', {
-        method: 'GET',
-        managementKey,
-      });
+      let result;
+      try {
+        result = await fetchCpaManagementJson(origin, '/v0/management/codex-auth-url', {
+          method: 'GET',
+          managementKey,
+        });
+      } catch (error) {
+        if (!isFetchTransportError(error)) {
+          throw error;
+        }
+        return requestCpaOAuthUrlViaPanelPage(state, {
+          logLabel,
+          origin,
+          directError: error,
+        });
+      }
 
       const oauthUrl = String(
         result?.url
@@ -291,6 +327,88 @@
         oauthUrl,
         cpaOAuthState: oauthState,
         cpaManagementOrigin: origin,
+      };
+    }
+
+    async function requestCpaOAuthUrlViaPanelPage(state, options = {}) {
+      const {
+        logLabel = 'OAuth 刷新',
+        origin = '',
+        directError = null,
+      } = options;
+      const vpsUrl = String(state.vpsUrl || '').trim();
+      if (!vpsUrl) {
+        throw directError || new Error('尚未配置 CPA 地址，请先在侧边栏填写。');
+      }
+      if (!chrome?.tabs?.create || typeof sendToContentScript !== 'function') {
+        throw directError || new Error('CPA 管理接口不可用，且当前运行环境不支持打开 CPA 面板兜底获取 OAuth 链接。');
+      }
+
+      await addLog(
+        `${logLabel}：CPA 管理接口直连失败，改用打开 CPA 面板页面点击 OAuth 登录兜底。原因：${directError?.message || '未知错误'}`,
+        'warn'
+      );
+
+      const injectFiles = ['content/utils.js', 'content/vps-panel.js'];
+      if (typeof closeConflictingTabsForSource === 'function') {
+        await closeConflictingTabsForSource('vps-panel', vpsUrl);
+      }
+
+      const tab = await chrome.tabs.create({ url: vpsUrl, active: true });
+      const tabId = tab.id;
+      if (typeof rememberSourceLastUrl === 'function') {
+        await rememberSourceLastUrl('vps-panel', vpsUrl);
+      }
+
+      await addLog(`${logLabel}：CPA 面板已打开，正在等待页面加载...`);
+      if (typeof waitForTabUrlFamily === 'function') {
+        const matchedTab = await waitForTabUrlFamily('vps-panel', tabId, vpsUrl, {
+          timeoutMs: 15000,
+          retryDelayMs: 400,
+        });
+        if (!matchedTab) {
+          await addLog(`${logLabel}：CPA 面板地址尚未稳定，继续尝试连接内容脚本...`, 'warn');
+        }
+      }
+
+      if (typeof ensureContentScriptReadyOnTab === 'function') {
+        await ensureContentScriptReadyOnTab('vps-panel', tabId, {
+          inject: injectFiles,
+          injectSource: 'vps-panel',
+          timeoutMs: 45000,
+          retryDelayMs: 900,
+          logMessage: `${logLabel}：CPA 面板仍在加载，正在重试连接内容脚本...`,
+        });
+      }
+
+      const result = await sendToContentScript('vps-panel', {
+        type: 'REQUEST_OAUTH_URL',
+        source: 'background',
+        payload: {
+          vpsPassword: state.vpsPassword,
+          logStep: 7,
+        },
+      }, {
+        responseTimeoutMs: 90000,
+      });
+
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+
+      const oauthUrl = String(result?.oauthUrl || '').trim();
+      const oauthState = extractStateFromAuthUrl(oauthUrl);
+      if (!oauthUrl || !oauthUrl.startsWith('http')) {
+        throw new Error('CPA 面板兜底流程未返回有效的 OAuth 授权链接。');
+      }
+      if (!oauthState) {
+        throw new Error('CPA 面板兜底流程返回的 OAuth 授权链接缺少 state，无法安全校验回调。');
+      }
+
+      return {
+        oauthUrl,
+        cpaOAuthState: oauthState,
+        cpaManagementOrigin: origin || deriveCpaManagementOrigin(vpsUrl),
       };
     }
 

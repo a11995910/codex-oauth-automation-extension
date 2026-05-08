@@ -117,6 +117,69 @@ test('panel bridge can request cpa oauth url via management api', async () => {
   }
 });
 
+test('panel bridge falls back to CPA panel page when management api fetch fails', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const originalFetch = globalThis.fetch;
+  const logs = [];
+  const createdTabs = [];
+  const sentMessages = [];
+  globalThis.fetch = async () => {
+    throw new TypeError('Failed to fetch');
+  };
+
+  try {
+    const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+    const bridge = api.createPanelBridge({
+      addLog: async (message, level = 'info') => {
+        logs.push({ message, level });
+      },
+      chrome: {
+        tabs: {
+          create: async (details) => {
+            createdTabs.push(details);
+            return { id: 91 };
+          },
+        },
+      },
+      closeConflictingTabsForSource: async () => {},
+      ensureContentScriptReadyOnTab: async () => {},
+      getPanelMode: () => 'cpa',
+      normalizeCodex2ApiUrl: (value) => value,
+      normalizeSub2ApiUrl: (value) => value,
+      rememberSourceLastUrl: async () => {},
+      sendToContentScript: async (sourceName, message, options) => {
+        sentMessages.push({ sourceName, message, options });
+        return {
+          oauthUrl: 'https://auth.openai.com/authorize?state=fallback-state',
+        };
+      },
+      waitForTabUrlFamily: async () => ({ id: 91 }),
+      DEFAULT_SUB2API_GROUP_NAME: 'codex',
+      SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+    });
+
+    const result = await bridge.requestOAuthUrlFromPanel({
+      panelMode: 'cpa',
+      vpsUrl: 'http://localhost:8317/admin/oauth',
+      vpsPassword: 'cpa-key',
+    }, { logLabel: '步骤 7' });
+
+    assert.deepStrictEqual(result, {
+      oauthUrl: 'https://auth.openai.com/authorize?state=fallback-state',
+      cpaOAuthState: 'fallback-state',
+      cpaManagementOrigin: 'http://localhost:8317',
+    });
+    assert.deepStrictEqual(createdTabs, [{ url: 'http://localhost:8317/admin/oauth', active: true }]);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0].sourceName, 'vps-panel');
+    assert.equal(sentMessages[0].message.type, 'REQUEST_OAUTH_URL');
+    assert.equal(sentMessages[0].message.payload.vpsPassword, 'cpa-key');
+    assert.ok(logs.some(({ message, level }) => level === 'warn' && /CPA 管理接口直连失败/.test(message)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('panel bridge can request manager oauth url via rpc', async () => {
   const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
   const originalFetch = globalThis.fetch;
