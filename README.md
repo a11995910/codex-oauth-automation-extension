@@ -147,7 +147,15 @@
 4. Step 7 会直接通过 Codex2API 协议 `/api/admin/oauth/generate-auth-url` 生成 OAuth 链接
 5. Step 10 会把 localhost 回调中的 `code / state` 通过 `/api/admin/oauth/exchange-code` 直接提交给 Codex2API
 
-### 方案 D：`Hotmail 账号池`
+### 方案 D：`内置 Codex JSON + QQ / 163 / 163 VIP / 126`
+
+1. `来源` 选择 `内置 Codex JSON`
+2. 不需要填写 CPA、SUB2API、Codex2API 或 Manager 地址
+3. `Mail` 与 `邮箱生成` 的配置方式同方案 A
+4. Step 7 会由扩展直接生成 Codex OAuth 授权链接，并保存本轮 `state / code_verifier`
+5. Step 10 会用 localhost 回调里的 `code` 和本轮 `code_verifier` 交换 token，然后下载 CLIProxyAPI 兼容的 `codex-*.json` 认证文件
+
+### 方案 E：`Hotmail 账号池`
 
 1. `Mail` 选择 `Hotmail`
 2. 在 `Hotmail 账号池` 中添加 `邮箱 / Client ID / Refresh Token`
@@ -155,7 +163,7 @@
 4. 通过后再执行步骤或 `Auto`
 5. 当前项目中，`Mail = Hotmail` 时会直接使用账号池里的邮箱作为注册邮箱，不再走 `Duck / Cloudflare` 自动生成
 
-### 方案 E：`2925 账号池`
+### 方案 F：`2925 账号池`
 
 1. `Mail` 选择 `2925`
 2. 在 `2925 账号池` 中添加 `邮箱 / 密码`
@@ -206,6 +214,18 @@ Step 1 和 Step 10 都依赖这个地址。
 
 这条来源是协议直连，不依赖 Codex2API 后台页面的“添加账号 / OAuth 授权 / 生成授权链接”按钮 DOM。
 
+### `内置 Codex JSON`
+
+当 `来源 = 内置 Codex JSON` 时，不需要配置外部平台服务。
+
+插件会在：
+
+- Step 7 使用 Codex CLI OAuth 参数生成授权链接，并保存本轮 `state / code_verifier / code_challenge`
+- Step 10 校验 localhost callback 的 `state`，用 `code + code_verifier` 请求 `https://auth.openai.com/oauth/token`
+- Step 10 解析 `id_token`，生成并下载 CLIProxyAPI 兼容的 `codex-*.json`；文件固定落到浏览器 Downloads 的 `Codex-OAuth-JSON/` 子文件夹
+
+这条来源只负责落成本地浏览器下载文件，不会把账号写入 CPA、SUB2API、Codex2API 或 Manager。详细字段和文件命名规则见 [docs/builtin-codex-source.md](docs/builtin-codex-source.md)。
+
 ### `Mail`
 
 支持七种验证码来源：
@@ -227,12 +247,13 @@ Step 1 和 Step 10 都依赖这个地址。
 
 ### `IMAP OpenAI 验证码本地查询页`
 
-如果你使用 `DuckDuckGo @duck.com` 虚拟邮箱，并把邮件转发到 2925 或其他支持 IMAP 的邮箱，可以启动查询页快速查验证码，避免每次手动打开邮箱搜索。
+如果你使用 `DuckDuckGo @duck.com` 虚拟邮箱，并把邮件转发到 2925、QQ 或其他支持 IMAP 的邮箱，可以启动查询页快速查验证码，避免每次手动打开邮箱搜索。
 
 准备内容：
 
 - 收件邮箱已开启 `IMAP/SMTP`
 - 2925 常用 IMAP 配置为 `imap.2925mail.com:993`，连接方式使用 SSL/TLS
+- QQ 常用 IMAP 配置为 `imap.qq.com:993`，连接方式使用 SSL/TLS，通常需要 QQ 邮箱后台生成的 IMAP 授权码
 - IMAP 密码/授权码：2925 通常可先尝试邮箱登录密码；如果 2925 后台提供独立第三方客户端授权码，则填写授权码
 - 当前查询邮箱，例如 `xxx@duck.com`、`name@2925.com` 或其他真实收码邮箱
 
@@ -266,7 +287,10 @@ http://127.0.0.1:18769/
 本地服务包含两个页面：
 
 - 后台配置页：`http://127.0.0.1:18769/admin`
+  - 可在 `2925 邮箱`、`QQ 邮箱`、`自定义 IMAP` 中选择当前收件服务
   - 填写 IMAP 邮箱地址、IMAP 密码/授权码、邮箱目录、扫描封数和轮询间隔
+  - 2925 与 QQ 会分别保存配置；切换服务时会回填对应邮箱、主机、端口和扫描参数
+  - 密码/授权码不会在后台页面明文回显；如果已经保存，留空再次保存会沿用数据库中的旧密码/授权码
   - 保存后会写入本地 SQLite 数据库，服务重启后会自动加载，无需重复填写
   - 后台会优先扫描当天新邮件，并按邮箱目录和 UID 去重写入数据库
   - 可查看数据库中最近收取到的邮件记录，并按任意邮箱地址筛选
@@ -547,7 +571,7 @@ Cloudflare 模式下，插件不会再调用 Cloudflare API 创建路由。
 
 整套流程自动跑。
 
-支持多轮运行，运行次数由右上角数字框决定。
+支持多轮运行，运行次数由右上角数字框决定；侧边栏默认显示 `5` 轮，使用邮箱池或自定义号池时会自动跟随池内数量。
 
 `延迟` 里的“启动前倒计时”只控制整轮 Auto 开始前要不要先倒计时多少分钟。
 
@@ -736,8 +760,9 @@ Step 8 默认要求当前认证页已经处于登录验证码页。
 校验规则：
 
 - 步骤 10 会拒绝任何不是真实 `/auth/callback`，或缺少 `code` / `state` 的本地回调地址
-- 步骤 10 会校验回调里的 `state` 必须等于当前 CPA OAuth 链接对应的 state；如果 CPA 管理接口没有返回可校验的 state，会要求重新执行 OAuth 登录步骤
+- 步骤 10 会校验回调里的 `state` 必须等于当前来源 OAuth 链接对应的 state；如果当前来源没有可校验的 state，会要求重新执行 OAuth 登录步骤
 - CPA 默认通过管理接口 `/v0/management/oauth-callback` 提交回调地址，并使用侧边栏填写的管理密钥，不再依赖面板 DOM 文案判定成功
+- `内置 Codex JSON` 会直接交换 token 并下载认证 JSON，不会提交到任何外部面板
 - 成功后的清理只会针对 `/auth` 这一类真实回调标签页，不会再泛化清理任意 localhost 路径
 - 侧边栏可切换“回调方式”，默认是 `服务器部署`
 - 选择 `服务器部署` 时，即使 CPA 部署在本地，也会执行步骤 10

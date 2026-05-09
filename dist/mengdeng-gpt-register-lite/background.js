@@ -340,7 +340,7 @@ const LEGACY_VERIFICATION_RESEND_COUNT_KEYS = ['signupVerificationResendCount', 
 const DEFAULT_LOCAL_CPA_STEP9_MODE = 'submit';
 const MAIL_2925_MODE_PROVIDE = 'provide';
 const MAIL_2925_MODE_RECEIVE = 'receive';
-const DEFAULT_MAIL_2925_MODE = MAIL_2925_MODE_PROVIDE;
+const DEFAULT_MAIL_2925_MODE = MAIL_2925_MODE_RECEIVE;
 const HOTMAIL_SERVICE_MODE_REMOTE = 'remote';
 const HOTMAIL_SERVICE_MODE_LOCAL = 'local';
 const DEFAULT_HOTMAIL_REMOTE_BASE_URL = '';
@@ -362,8 +362,6 @@ const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
 const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
   PHONE_SMS_PROVIDER_HERO,
-  PHONE_SMS_PROVIDER_5SIM,
-  PHONE_SMS_PROVIDER_NEXSMS,
   PHONE_SMS_PROVIDER_SMSBOWER,
 ]);
 const DEFAULT_FIVE_SIM_BASE_URL = 'https://5sim.net/v1';
@@ -377,7 +375,7 @@ const DEFAULT_SMS_BOWER_BASE_URL = 'https://smsbower.page/stubs/handler_api.php'
 const DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr';
 const SMS_BOWER_COUNTRY_ID = 52;
 const SMS_BOWER_COUNTRY_LABEL = 'Thailand';
-const DEFAULT_HERO_SMS_REUSE_ENABLED = true;
+const DEFAULT_HERO_SMS_REUSE_ENABLED = false;
 const HERO_SMS_ACQUIRE_PRIORITY_COUNTRY = 'country';
 const HERO_SMS_ACQUIRE_PRIORITY_PRICE = 'price';
 const HERO_SMS_ACQUIRE_PRIORITY_PRICE_HIGH = 'price_high';
@@ -428,7 +426,7 @@ const CONTRIBUTION_RUNTIME_KEYS = self.MultiPageBackgroundContributionOAuth?.RUN
   || Object.keys(CONTRIBUTION_RUNTIME_DEFAULTS);
 
 function isPlusModeState(state = {}) {
-  return Boolean(state?.plusModeEnabled);
+  return false;
 }
 
 function normalizePlusPaymentMethod(value = '') {
@@ -574,7 +572,7 @@ function setupDeclarativeNetRequestRules() {
 // ============================================================
 
 const PERSISTED_SETTING_DEFAULTS = {
-  panelMode: 'cpa',
+  panelMode: 'builtin-codex',
   vpsUrl: '',
   vpsPassword: '',
   localCpaStep9Mode: DEFAULT_LOCAL_CPA_STEP9_MODE,
@@ -660,8 +658,8 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoStepDelaySeconds: null,
   step6CookieCleanupEnabled: false,
   phoneVerificationEnabled: false,
-  freePhoneReuseEnabled: true,
-  freePhoneReuseAutoEnabled: true,
+  freePhoneReuseEnabled: false,
+  freePhoneReuseAutoEnabled: false,
   signupMethod: DEFAULT_SIGNUP_METHOD,
   phoneSmsProvider: DEFAULT_PHONE_SMS_PROVIDER,
   phoneSmsProviderOrder: [],
@@ -671,7 +669,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   phoneCodeTimeoutWindows: DEFAULT_PHONE_CODE_TIMEOUT_WINDOWS,
   phoneCodePollIntervalSeconds: DEFAULT_PHONE_CODE_POLL_INTERVAL_SECONDS,
   phoneCodePollMaxRounds: DEFAULT_PHONE_CODE_POLL_ROUNDS,
-  mailProvider: '163',
+  mailProvider: 'qq',
   mail2925Mode: DEFAULT_MAIL_2925_MODE,
   mail2925UseAccountPool: false,
   emailGenerator: 'duck',
@@ -1160,17 +1158,7 @@ function normalizeHeroSmsCountryFallback(value = []) {
 
 
 function normalizePhoneSmsProvider(value = '') {
-  const rootScope = typeof self !== 'undefined' ? self : globalThis;
-  if (rootScope.PhoneSmsProviderRegistry?.normalizeProviderId) {
-    return rootScope.PhoneSmsProviderRegistry.normalizeProviderId(value);
-  }
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === PHONE_SMS_PROVIDER_FIVE_SIM) {
-    return PHONE_SMS_PROVIDER_FIVE_SIM;
-  }
-  if (normalized === PHONE_SMS_PROVIDER_NEXSMS) {
-    return PHONE_SMS_PROVIDER_NEXSMS;
-  }
   if (normalized === PHONE_SMS_PROVIDER_SMSBOWER || normalized === 'sms-bower') {
     return PHONE_SMS_PROVIDER_SMSBOWER;
   }
@@ -1222,15 +1210,11 @@ function normalizePhoneSmsProviderOrder(value = [], fallbackOrder = []) {
 }
 
 function normalizeSignupMethod(value = '') {
-  return String(value || '').trim().toLowerCase() === 'phone'
-    ? 'phone'
-    : 'email';
+  return 'email';
 }
 
 function canUsePhoneSignup(state = {}) {
-  return Boolean(state?.phoneVerificationEnabled)
-    && !Boolean(state?.plusModeEnabled)
-    && !Boolean(state?.contributionMode);
+  return false;
 }
 
 function resolveSignupMethod(state = {}) {
@@ -1695,27 +1679,6 @@ function getAutoRunTimerStatusPayload(plan) {
 }
 
 function normalizeEmailGenerator(value = '') {
-  const normalized = String(value || '').trim().toLowerCase();
-  const customEmailPoolGenerator = typeof CUSTOM_EMAIL_POOL_GENERATOR === 'string'
-    ? CUSTOM_EMAIL_POOL_GENERATOR
-    : 'custom-pool';
-  const gmailAliasGenerator = typeof GMAIL_ALIAS_GENERATOR === 'string'
-    ? GMAIL_ALIAS_GENERATOR
-    : 'gmail-alias';
-  if (normalized === 'custom' || normalized === 'manual') {
-    return 'custom';
-  }
-  if (normalized === gmailAliasGenerator) {
-    return gmailAliasGenerator;
-  }
-  if (normalized === customEmailPoolGenerator) {
-    return customEmailPoolGenerator;
-  }
-  if (normalized === 'icloud') {
-    return 'icloud';
-  }
-  if (normalized === 'cloudflare') return 'cloudflare';
-  if (normalized === CLOUDFLARE_TEMP_EMAIL_GENERATOR) return CLOUDFLARE_TEMP_EMAIL_GENERATOR;
   return 'duck';
 }
 
@@ -1930,41 +1893,12 @@ function getCustomMailProviderPoolEmailForRun(state = {}, targetRun = 1) {
 }
 
 function normalizePanelMode(value = '') {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'sub2api') {
-    return 'sub2api';
-  }
-  if (normalized === 'codex2api') {
-    return 'codex2api';
-  }
-  if (normalized === 'builtin-codex') {
-    return 'builtin-codex';
-  }
-  if (normalized === 'manager') {
-    return 'manager';
-  }
-  return 'cpa';
+  return 'builtin-codex';
 }
 
 function normalizeMailProvider(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  switch (normalized) {
-    case 'custom':
-    case ICLOUD_PROVIDER:
-    case GMAIL_PROVIDER:
-    case HOTMAIL_PROVIDER:
-    case LUCKMAIL_PROVIDER:
-    case CLOUDFLARE_TEMP_EMAIL_PROVIDER:
-    case '163':
-    case '163-vip':
-    case '126':
-    case 'qq':
-    case 'inbucket':
-    case '2925':
-      return normalized;
-    default:
-      return PERSISTED_SETTING_DEFAULTS.mailProvider;
-  }
+  return normalized === '2925' ? '2925' : 'qq';
 }
 
 function buildLuckmailSessionSettingsPayload(input = {}) {
@@ -2010,9 +1944,7 @@ function buildLuckmailSessionSettingsPayload(input = {}) {
 }
 
 function normalizeMail2925Mode(value = '') {
-  return String(value || '').trim().toLowerCase() === MAIL_2925_MODE_RECEIVE
-    ? MAIL_2925_MODE_RECEIVE
-    : DEFAULT_MAIL_2925_MODE;
+  return MAIL_2925_MODE_RECEIVE;
 }
 
 function normalizeLocalCpaStep9Mode(value = '') {
@@ -2395,10 +2327,11 @@ function normalizePersistentSettingValue(key, value) {
     case 'autoRunDelayEnabled':
     case 'step6CookieCleanupEnabled':
     case 'phoneVerificationEnabled':
+      return Boolean(value);
     case 'freePhoneReuseEnabled':
     case 'freePhoneReuseAutoEnabled':
     case 'plusModeEnabled':
-      return Boolean(value);
+      return false;
     case 'phoneSmsProvider':
       return normalizePhoneSmsProvider(value);
     case 'phoneSmsProviderOrder':
@@ -2503,7 +2436,7 @@ function normalizePersistentSettingValue(key, value) {
     case 'heroSmsApiKey':
       return String(value || '');
     case 'heroSmsReuseEnabled':
-      return Boolean(value);
+      return false;
     case 'heroSmsAcquirePriority':
       return normalizeHeroSmsAcquirePriority(value);
     case 'heroSmsMaxPrice':
@@ -2561,7 +2494,7 @@ function normalizePersistentSettingValue(key, value) {
     case 'smsBowerServiceCode':
       return normalizeNexSmsServiceCode(value, DEFAULT_SMS_BOWER_SERVICE_CODE);
     case 'phonePreferredActivation':
-      return normalizePhonePreferredActivation(value);
+      return null;
     default:
       return value;
   }
@@ -2942,6 +2875,7 @@ async function setPasswordState(password) {
 }
 
 function buildContributionModeState(enabled, persistedSettings = {}, currentState = {}) {
+  enabled = false;
   const currentContributionState = {};
   for (const key of CONTRIBUTION_RUNTIME_KEYS) {
     currentContributionState[key] = currentState[key] !== undefined

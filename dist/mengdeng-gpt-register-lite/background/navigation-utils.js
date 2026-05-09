@@ -51,36 +51,12 @@
     }
 
     function getPanelMode(state = {}) {
-      if (state.panelMode === 'sub2api') {
-        return 'sub2api';
-      }
-      if (state.panelMode === 'codex2api') {
-        return 'codex2api';
-      }
-      if (state.panelMode === 'builtin-codex') {
-        return 'builtin-codex';
-      }
-      if (state.panelMode === 'manager') {
-        return 'manager';
-      }
-      return 'cpa';
+      return 'builtin-codex';
     }
 
     function getPanelModeLabel(modeOrState) {
       const mode = typeof modeOrState === 'string' ? modeOrState : getPanelMode(modeOrState);
-      if (mode === 'sub2api') {
-        return 'SUB2API';
-      }
-      if (mode === 'codex2api') {
-        return 'Codex2API';
-      }
-      if (mode === 'builtin-codex') {
-        return '内置 Codex JSON';
-      }
-      if (mode === 'manager') {
-        return 'Manager';
-      }
-      return 'CPA';
+      return '内置 Codex JSON';
     }
 
     function isSignupPageHost(hostname = '') {

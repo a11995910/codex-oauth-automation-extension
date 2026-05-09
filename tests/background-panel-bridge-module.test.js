@@ -4,6 +4,7 @@ const fs = require('node:fs');
 
 test('background imports panel bridge module', () => {
   const source = fs.readFileSync('background.js', 'utf8');
+  assert.match(source, /importScripts\([\s\S]*'background\/builtin-codex-auth\.js'[\s\S]*'background\/panel-bridge\.js'/);
   assert.match(source, /importScripts\([\s\S]*'background\/panel-bridge\.js'/);
 });
 
@@ -20,6 +21,40 @@ test('panel bridge requests oauth url with step 7 log label payload', () => {
   const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
   assert.match(source, /logStep:\s*7/);
   assert.doesNotMatch(source, /logStep:\s*6/);
+});
+
+test('panel bridge can generate builtin codex oauth url with pkce state', async () => {
+  const source = fs.readFileSync('background/panel-bridge.js', 'utf8');
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundPanelBridge;`)({});
+  const logs = [];
+  const bridge = api.createPanelBridge({
+    addLog: async (message) => logs.push(message),
+    builtinCodexAuth: {
+      createOAuthSession: async () => ({
+        oauthUrl: 'https://auth.openai.com/oauth/authorize?state=builtin-state&code_challenge=challenge-123',
+        state: 'builtin-state',
+        codeVerifier: 'verifier-123',
+        codeChallenge: 'challenge-123',
+      }),
+    },
+    getPanelMode: () => 'builtin-codex',
+    normalizeCodex2ApiUrl: (value) => value,
+    normalizeSub2ApiUrl: (value) => value,
+    DEFAULT_SUB2API_GROUP_NAME: 'codex',
+    SUB2API_STEP1_RESPONSE_TIMEOUT_MS: 90000,
+  });
+
+  const result = await bridge.requestOAuthUrlFromPanel({
+    panelMode: 'builtin-codex',
+  }, { logLabel: '步骤 7' });
+
+  assert.deepStrictEqual(result, {
+    oauthUrl: 'https://auth.openai.com/oauth/authorize?state=builtin-state&code_challenge=challenge-123',
+    builtinCodexOAuthState: 'builtin-state',
+    builtinCodexCodeVerifier: 'verifier-123',
+    builtinCodexCodeChallenge: 'challenge-123',
+  });
+  assert.ok(logs.some((message) => /扩展内置生成 Codex OAuth 授权链接/.test(message)));
 });
 
 test('panel bridge can request codex2api oauth url via protocol', async () => {

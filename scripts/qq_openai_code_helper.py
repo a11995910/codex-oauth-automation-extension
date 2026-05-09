@@ -37,6 +37,7 @@ from urllib.parse import parse_qs, urlparse
 
 HOST = "127.0.0.1"
 PORT = 18769
+DEFAULT_PROVIDER = "2925"
 DEFAULT_IMAP_HOST = "imap.2925mail.com"
 DEFAULT_IMAP_PORT = 993
 DEFAULT_MAILBOXES = ["INBOX"]
@@ -44,6 +45,23 @@ DEFAULT_MAX_MESSAGES = 80
 DEFAULT_POLL_INTERVAL_SECONDS = 6
 DEFAULT_DB_PATH = Path(__file__).with_name("qq_openai_helper.sqlite3")
 RECENT_RECORD_LIMIT = 120
+IMAP_PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
+    "2925": {
+        "label": "2925 邮箱",
+        "imap_host": "imap.2925mail.com",
+        "imap_port": 993,
+    },
+    "qq": {
+        "label": "QQ 邮箱",
+        "imap_host": "imap.qq.com",
+        "imap_port": 993,
+    },
+    "custom": {
+        "label": "自定义 IMAP",
+        "imap_host": DEFAULT_IMAP_HOST,
+        "imap_port": DEFAULT_IMAP_PORT,
+    },
+}
 
 OPENAI_KEYWORDS = (
     "openai",
@@ -72,6 +90,7 @@ DB_LOCK = threading.Lock()
 DB_INIT_LOCK = threading.Lock()
 DB_INITIALIZED = False
 CONFIG: dict[str, Any] = {
+    "provider": DEFAULT_PROVIDER,
     "email": "",
     "password": "",
     "imap_host": DEFAULT_IMAP_HOST,
@@ -114,6 +133,26 @@ def init_database() -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS helper_config (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                provider TEXT NOT NULL DEFAULT '2925',
+                email TEXT NOT NULL DEFAULT '',
+                password TEXT NOT NULL DEFAULT '',
+                imap_host TEXT NOT NULL DEFAULT '',
+                imap_port INTEGER NOT NULL DEFAULT 993,
+                mailboxes_json TEXT NOT NULL DEFAULT '[]',
+                max_messages INTEGER NOT NULL DEFAULT 80,
+                poll_interval_seconds INTEGER NOT NULL DEFAULT 6,
+                updated_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        helper_columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(helper_config)").fetchall()
+        }
+        if "provider" not in helper_columns:
+            conn.execute("ALTER TABLE helper_config ADD COLUMN provider TEXT NOT NULL DEFAULT '2925'")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS imap_profiles (
+                provider TEXT PRIMARY KEY,
                 email TEXT NOT NULL DEFAULT '',
                 password TEXT NOT NULL DEFAULT '',
                 imap_host TEXT NOT NULL DEFAULT '',
@@ -152,6 +191,34 @@ def init_database() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_mail_records_primary_alias ON mail_records(primary_alias)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_mail_records_timestamp ON mail_records(timestamp DESC)")
+        existing_profile_count = conn.execute("SELECT COUNT(*) AS total FROM imap_profiles").fetchone()
+        current_config = conn.execute("SELECT * FROM helper_config WHERE id = 1").fetchone()
+        if (
+            current_config
+            and int(existing_profile_count["total"] or 0) == 0
+            and str(current_config["email"] or "")
+        ):
+            provider = normalize_provider(current_config["provider"] or infer_provider(current_config))
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO imap_profiles (
+                    provider, email, password, imap_host, imap_port, mailboxes_json,
+                    max_messages, poll_interval_seconds, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider,
+                    str(current_config["email"] or ""),
+                    str(current_config["password"] or ""),
+                    str(current_config["imap_host"] or provider_default(provider, "imap_host")),
+                    int(current_config["imap_port"] or provider_default(provider, "imap_port")),
+                    str(current_config["mailboxes_json"] or "[]"),
+                    int(current_config["max_messages"] or DEFAULT_MAX_MESSAGES),
+                    int(current_config["poll_interval_seconds"] or DEFAULT_POLL_INTERVAL_SECONDS),
+                    str(current_config["updated_at"] or now_iso()),
+                ),
+            )
         conn.commit()
     DB_INITIALIZED = True
 
@@ -198,6 +265,50 @@ def is_email_query(value: object) -> bool:
     return bool(EMAIL_PATTERN.fullmatch(normalize_alias(value)))
 
 
+def normalize_provider(value: object) -> str:
+    provider = str(value or "").strip().lower()
+    if provider in {"2925", "mail2925"}:
+        return "2925"
+    if provider in {"qq", "qqmail", "qq_mail"}:
+        return "qq"
+    if provider in IMAP_PROVIDER_PRESETS:
+        return provider
+    return "custom"
+
+
+def provider_default(provider: object, key: str) -> Any:
+    preset = IMAP_PROVIDER_PRESETS.get(normalize_provider(provider)) or IMAP_PROVIDER_PRESETS[DEFAULT_PROVIDER]
+    return preset.get(key)
+
+
+def make_mailbox_scope(config: dict[str, Any], mailbox: object) -> str:
+    provider = normalize_provider(config.get("provider") or infer_provider(config))
+    email_address = normalize_alias(config.get("email"))
+    mailbox_name = str(mailbox or "").strip() or "INBOX"
+    return f"{provider}:{email_address}:{mailbox_name}"
+
+
+def get_mapping_value(mapping: object, key: str, default: Any = "") -> Any:
+    if isinstance(mapping, sqlite3.Row):
+        return mapping[key] if key in mapping.keys() else default
+    if isinstance(mapping, dict):
+        return mapping.get(key, default)
+    return default
+
+
+def infer_provider(config: object) -> str:
+    provider = str(get_mapping_value(config, "provider", "") or "").strip()
+    if provider:
+        return normalize_provider(provider)
+    host = str(get_mapping_value(config, "imap_host", "") or "").lower()
+    email_address = str(get_mapping_value(config, "email", "") or "").lower()
+    if "qq.com" in host or email_address.endswith("@qq.com"):
+        return "qq"
+    if "2925" in host or email_address.endswith("@2925.com"):
+        return "2925"
+    return "custom"
+
+
 def parse_mailboxes(value: object) -> list[str]:
     if isinstance(value, list):
         parts = value
@@ -231,15 +342,25 @@ def row_to_record(row: sqlite3.Row) -> dict[str, Any]:
 
 def save_config_to_db(config: dict[str, Any]) -> None:
     ensure_database()
+    provider = normalize_provider(config.get("provider") or infer_provider(config))
+    email_address = str(config.get("email") or "")
+    password = str(config.get("password") or "")
+    imap_host = str(config.get("imap_host") or provider_default(provider, "imap_host") or DEFAULT_IMAP_HOST)
+    imap_port = int(config.get("imap_port") or provider_default(provider, "imap_port") or DEFAULT_IMAP_PORT)
+    mailboxes_json = json_dumps(parse_mailboxes(config.get("mailboxes")))
+    max_messages = int(config.get("max_messages") or DEFAULT_MAX_MESSAGES)
+    poll_interval = int(config.get("poll_interval_seconds") or DEFAULT_POLL_INTERVAL_SECONDS)
+    updated_at = now_iso()
     with DB_LOCK, db_connect() as conn:
         conn.execute(
             """
             INSERT INTO helper_config (
-                id, email, password, imap_host, imap_port, mailboxes_json,
+                id, provider, email, password, imap_host, imap_port, mailboxes_json,
                 max_messages, poll_interval_seconds, updated_at
             )
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
+                provider = excluded.provider,
                 email = excluded.email,
                 password = excluded.password,
                 imap_host = excluded.imap_host,
@@ -250,17 +371,61 @@ def save_config_to_db(config: dict[str, Any]) -> None:
                 updated_at = excluded.updated_at
             """,
             (
-                str(config.get("email") or ""),
-                str(config.get("password") or ""),
-                str(config.get("imap_host") or DEFAULT_IMAP_HOST),
-                int(config.get("imap_port") or DEFAULT_IMAP_PORT),
-                json_dumps(parse_mailboxes(config.get("mailboxes"))),
-                int(config.get("max_messages") or DEFAULT_MAX_MESSAGES),
-                int(config.get("poll_interval_seconds") or DEFAULT_POLL_INTERVAL_SECONDS),
-                now_iso(),
+                provider,
+                email_address,
+                password,
+                imap_host,
+                imap_port,
+                mailboxes_json,
+                max_messages,
+                poll_interval,
+                updated_at,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO imap_profiles (
+                provider, email, password, imap_host, imap_port, mailboxes_json,
+                max_messages, poll_interval_seconds, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider) DO UPDATE SET
+                email = excluded.email,
+                password = excluded.password,
+                imap_host = excluded.imap_host,
+                imap_port = excluded.imap_port,
+                mailboxes_json = excluded.mailboxes_json,
+                max_messages = excluded.max_messages,
+                poll_interval_seconds = excluded.poll_interval_seconds,
+                updated_at = excluded.updated_at
+            """,
+            (
+                provider,
+                email_address,
+                password,
+                imap_host,
+                imap_port,
+                mailboxes_json,
+                max_messages,
+                poll_interval,
+                updated_at,
             ),
         )
         conn.commit()
+
+
+def row_to_config(row: sqlite3.Row) -> dict[str, Any]:
+    provider = infer_provider(row)
+    return {
+        "provider": provider,
+        "email": str(row["email"] or ""),
+        "password": str(row["password"] or ""),
+        "imap_host": str(row["imap_host"] or provider_default(provider, "imap_host") or DEFAULT_IMAP_HOST),
+        "imap_port": int(row["imap_port"] or provider_default(provider, "imap_port") or DEFAULT_IMAP_PORT),
+        "mailboxes": parse_mailboxes(json_loads_list(row["mailboxes_json"])),
+        "max_messages": int(row["max_messages"] or DEFAULT_MAX_MESSAGES),
+        "poll_interval_seconds": int(row["poll_interval_seconds"] or DEFAULT_POLL_INTERVAL_SECONDS),
+    }
 
 
 def load_config_from_db() -> dict[str, Any] | None:
@@ -269,15 +434,22 @@ def load_config_from_db() -> dict[str, Any] | None:
         row = conn.execute("SELECT * FROM helper_config WHERE id = 1").fetchone()
     if not row:
         return None
-    return {
-        "email": str(row["email"] or ""),
-        "password": str(row["password"] or ""),
-        "imap_host": str(row["imap_host"] or DEFAULT_IMAP_HOST),
-        "imap_port": int(row["imap_port"] or DEFAULT_IMAP_PORT),
-        "mailboxes": parse_mailboxes(json_loads_list(row["mailboxes_json"])),
-        "max_messages": int(row["max_messages"] or DEFAULT_MAX_MESSAGES),
-        "poll_interval_seconds": int(row["poll_interval_seconds"] or DEFAULT_POLL_INTERVAL_SECONDS),
-    }
+    return row_to_config(row)
+
+
+def load_profile_from_db(provider: object) -> dict[str, Any] | None:
+    ensure_database()
+    normalized = normalize_provider(provider)
+    with DB_LOCK, db_connect() as conn:
+        row = conn.execute("SELECT * FROM imap_profiles WHERE provider = ?", (normalized,)).fetchone()
+    return row_to_config(row) if row else None
+
+
+def load_profiles_from_db() -> list[dict[str, Any]]:
+    ensure_database()
+    with DB_LOCK, db_connect() as conn:
+        rows = conn.execute("SELECT * FROM imap_profiles ORDER BY provider").fetchall()
+    return [row_to_config(row) for row in rows]
 
 
 def load_persisted_config() -> None:
@@ -563,6 +735,7 @@ def fetch_recent_records(config: dict[str, Any]) -> list[dict[str, Any]]:
     client = connect_imap(config)
     try:
         for mailbox in parse_mailboxes(config.get("mailboxes")):
+            mailbox_scope = make_mailbox_scope(config, mailbox)
             try:
                 status, _ = client.select(mailbox, readonly=True)
                 if status != "OK":
@@ -570,15 +743,12 @@ def fetch_recent_records(config: dict[str, Any]) -> list[dict[str, Any]]:
                 status, data = client.uid("search", None, "SINCE", imap_today_since())
                 if status != "OK" or not data or not data[0]:
                     continue
-                last_uid = get_last_uid(mailbox)
                 all_uids = [
                     uid_bytes.decode("ascii", errors="ignore")
                     for uid_bytes in data[0].split()
                 ]
-                new_uids = [
-                    uid for uid in all_uids
-                    if uid.isdigit() and int(uid) > last_uid
-                ]
+                last_uid = get_last_uid(mailbox_scope)
+                new_uids = [uid for uid in all_uids if uid.isdigit() and int(uid) > last_uid]
                 uids = new_uids[-max_messages:]
                 max_seen_uid = max([last_uid] + [int(uid) for uid in new_uids if uid.isdigit()])
                 for uid_bytes in reversed(uids):
@@ -589,11 +759,11 @@ def fetch_recent_records(config: dict[str, Any]) -> list[dict[str, Any]]:
                     raw = next((item[1] for item in msg_data if isinstance(item, tuple) and item[1]), None)
                     if not raw:
                         continue
-                    record = parse_message(raw, mailbox, uid)
+                    record = parse_message(raw, mailbox_scope, uid)
                     if record:
                         records.append(record)
                 if max_seen_uid > last_uid:
-                    set_last_uid(mailbox, max_seen_uid)
+                    set_last_uid(mailbox_scope, max_seen_uid)
             except Exception as exc:
                 set_state(last_error=f"读取邮箱目录 {mailbox} 失败：{exc}")
     finally:
@@ -629,16 +799,31 @@ def get_state_snapshot() -> dict[str, Any]:
     return {
         **state,
         "records": records,
-        "config": {
-            "email": mask_email(config.get("email")),
-            "imap_host": config.get("imap_host"),
-            "imap_port": config.get("imap_port"),
-            "mailboxes": config.get("mailboxes"),
-            "max_messages": config.get("max_messages"),
-            "poll_interval_seconds": config.get("poll_interval_seconds"),
-            "db_path": str(get_db_path()),
-        },
+        "config": serialize_config_for_admin(config, include_db_path=True),
+        "profiles": [
+            serialize_config_for_admin(profile)
+            for profile in load_profiles_from_db()
+        ],
     }
+
+
+def serialize_config_for_admin(config: dict[str, Any], include_db_path: bool = False) -> dict[str, Any]:
+    provider = normalize_provider(config.get("provider") or infer_provider(config))
+    serialized = {
+        "provider": provider,
+        "provider_label": str(provider_default(provider, "label") or provider),
+        "email": str(config.get("email") or ""),
+        "masked_email": mask_email(config.get("email")),
+        "has_password": bool(config.get("password")),
+        "imap_host": config.get("imap_host") or provider_default(provider, "imap_host"),
+        "imap_port": config.get("imap_port") or provider_default(provider, "imap_port"),
+        "mailboxes": config.get("mailboxes"),
+        "max_messages": config.get("max_messages"),
+        "poll_interval_seconds": config.get("poll_interval_seconds"),
+    }
+    if include_db_path:
+        serialized["db_path"] = str(get_db_path())
+    return serialized
 
 
 def mask_email(value: object) -> str:
@@ -809,19 +994,25 @@ class HelperHandler(BaseHTTPRequestHandler):
 
 
 def apply_config(payload: dict[str, Any]) -> None:
+    provider = normalize_provider(payload.get("provider") or infer_provider(payload))
     imap_email = str(payload.get("email") or "").strip()
     password = str(payload.get("password") or "").strip()
     if not is_email_query(imap_email):
         raise RuntimeError("请填写完整邮箱地址。")
     with STATE_LOCK:
-        previous_password = str(CONFIG.get("password") or "")
+        active_provider = normalize_provider(CONFIG.get("provider") or infer_provider(CONFIG))
+        active_password = str(CONFIG.get("password") or "")
+    saved_profile = load_profile_from_db(provider)
+    previous_password = str((saved_profile or {}).get("password") or "")
+    if not previous_password and active_provider == provider:
+        previous_password = active_password
     if not password:
         password = previous_password
     if not password:
         raise RuntimeError("请填写 IMAP 密码或授权码。")
 
-    imap_host = str(payload.get("imap_host") or DEFAULT_IMAP_HOST).strip() or DEFAULT_IMAP_HOST
-    imap_port = int(payload.get("imap_port") or DEFAULT_IMAP_PORT)
+    imap_host = str(payload.get("imap_host") or provider_default(provider, "imap_host") or DEFAULT_IMAP_HOST).strip()
+    imap_port = int(payload.get("imap_port") or provider_default(provider, "imap_port") or DEFAULT_IMAP_PORT)
     if imap_port <= 0 or imap_port > 65535:
         raise RuntimeError("IMAP 端口不合法。")
     max_messages = max(1, min(500, int(payload.get("max_messages") or DEFAULT_MAX_MESSAGES)))
@@ -830,6 +1021,7 @@ def apply_config(payload: dict[str, Any]) -> None:
 
     with STATE_LOCK:
         next_config = {
+            "provider": provider,
             "email": imap_email,
             "password": password,
             "imap_host": imap_host,
@@ -839,6 +1031,7 @@ def apply_config(payload: dict[str, Any]) -> None:
             "poll_interval_seconds": poll_interval,
         }
         CONFIG.update({
+            "provider": provider,
             "email": imap_email,
             "password": password,
             "imap_host": imap_host,
@@ -915,7 +1108,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
     }
     h2 { margin: 0 0 12px; font-size: 15px; }
     label { display: block; margin: 10px 0 6px; color: var(--muted); }
-    input, textarea {
+    input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -995,6 +1188,12 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
   <main>
     <section>
       <h2>IMAP 邮箱配置</h2>
+      <label>邮箱服务</label>
+      <select id="provider">
+        <option value="2925">2925 邮箱</option>
+        <option value="qq">QQ 邮箱</option>
+        <option value="custom">自定义 IMAP</option>
+      </select>
       <label>邮箱地址</label>
       <input id="email" placeholder="name@2925.com" autocomplete="username" />
       <label>IMAP 密码/授权码</label>
@@ -1048,6 +1247,30 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
+    const providerPresets = {
+      "2925": {
+        label: "2925 邮箱",
+        emailPlaceholder: "name@2925.com",
+        passwordPlaceholder: "2925 邮箱登录密码；如后台提供授权码则填授权码",
+        imap_host: "imap.2925mail.com",
+        imap_port: 993,
+      },
+      qq: {
+        label: "QQ 邮箱",
+        emailPlaceholder: "name@qq.com",
+        passwordPlaceholder: "QQ 邮箱 IMAP 授权码，不是 QQ 登录密码",
+        imap_host: "imap.qq.com",
+        imap_port: 993,
+      },
+      custom: {
+        label: "自定义 IMAP",
+        emailPlaceholder: "name@example.com",
+        passwordPlaceholder: "邮箱 IMAP 密码或第三方客户端授权码",
+        imap_host: "imap.2925mail.com",
+        imap_port: 993,
+      },
+    };
+    let savedProfiles = {};
     let latestCode = "";
 
     function setBusy(button, busy) {
@@ -1076,18 +1299,50 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
 
     function renderState(data) {
       const cfg = data.config || {};
-      if (cfg.imap_host) $("imapHost").value = cfg.imap_host;
-      if (cfg.imap_port) $("imapPort").value = cfg.imap_port;
-      if (Array.isArray(cfg.mailboxes)) $("mailboxes").value = cfg.mailboxes.join("\\n");
-      if (cfg.max_messages) $("maxMessages").value = cfg.max_messages;
-      if (cfg.poll_interval_seconds) $("pollInterval").value = cfg.poll_interval_seconds;
+      savedProfiles = {};
+      for (const profile of data.profiles || []) {
+        if (profile.provider) savedProfiles[profile.provider] = profile;
+      }
+      applyConfigToForm(cfg, true);
       setStatus([
         data.last_message || "",
         data.last_scan_at ? `上次扫描：${data.last_scan_at}` : "",
-        data.configured ? `当前邮箱：${cfg.email || ""}` : "尚未配置",
+        data.configured ? `当前服务：${cfg.provider_label || ""}` : "",
+        data.configured ? `当前邮箱：${cfg.email || cfg.masked_email || ""}` : "尚未配置",
         data.last_error ? `错误：${data.last_error}` : "",
       ].filter(Boolean).join("\\n"), data.last_error ? "error" : (data.configured ? "ok" : ""));
       renderRecords(data.records || []);
+    }
+
+    function applyConfigToForm(config = {}, isActive = false) {
+      const provider = config.provider || $("provider").value || "2925";
+      const preset = providerPresets[provider] || providerPresets.custom;
+      $("provider").value = provider;
+      $("email").placeholder = preset.emailPlaceholder;
+      $("email").value = config.email || "";
+      $("password").value = "";
+      $("password").placeholder = config.has_password
+        ? `${preset.label}已保存密码/授权码，留空则沿用`
+        : preset.passwordPlaceholder;
+      $("imapHost").value = config.imap_host || preset.imap_host;
+      $("imapPort").value = config.imap_port || preset.imap_port;
+      if (Array.isArray(config.mailboxes)) $("mailboxes").value = config.mailboxes.join("\\n");
+      if (config.max_messages) $("maxMessages").value = config.max_messages;
+      if (config.poll_interval_seconds) $("pollInterval").value = config.poll_interval_seconds;
+      if (!isActive && !config.email) {
+        $("mailboxes").value = "INBOX";
+      }
+    }
+
+    function switchProvider() {
+      const provider = $("provider").value;
+      const profile = savedProfiles[provider] || {
+        provider,
+        mailboxes: ["INBOX"],
+        max_messages: $("maxMessages").value || 80,
+        poll_interval_seconds: $("pollInterval").value || 6,
+      };
+      applyConfigToForm(profile, false);
     }
 
     function renderRecords(records) {
@@ -1131,6 +1386,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
         const data = await api("/api/config", {
           method: "POST",
           body: JSON.stringify({
+            provider: $("provider").value,
             email: $("email").value,
             password: $("password").value,
             imap_host: $("imapHost").value,
@@ -1191,6 +1447,7 @@ ADMIN_PAGE_HTML = r"""<!doctype html>
     $("scanBtn").addEventListener("click", scanNow);
     $("queryBtn").addEventListener("click", queryCode);
     $("copyBtn").addEventListener("click", copyCode);
+    $("provider").addEventListener("change", switchProvider);
     $("alias").addEventListener("keydown", (event) => {
       if (event.key === "Enter") queryCode();
     });
@@ -2079,7 +2336,16 @@ def apply_env_config() -> None:
     ).strip()
     if not imap_email or not password:
         return
+    provider = (
+        os.environ.get("IMAP_OPENAI_HELPER_PROVIDER")
+        or os.environ.get("QQ_OPENAI_HELPER_PROVIDER")
+        or ""
+    )
     apply_config({
+        "provider": provider or infer_provider({
+            "email": imap_email,
+            "imap_host": os.environ.get("IMAP_OPENAI_HELPER_IMAP_HOST") or os.environ.get("QQ_OPENAI_HELPER_IMAP_HOST"),
+        }),
         "email": imap_email,
         "password": password,
         "imap_host": (

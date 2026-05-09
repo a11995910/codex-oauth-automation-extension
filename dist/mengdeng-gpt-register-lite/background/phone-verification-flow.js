@@ -28,7 +28,7 @@
       DEFAULT_NEX_SMS_SERVICE_CODE = 'ot',
       DEFAULT_SMS_BOWER_BASE_URL = 'https://smsbower.page/stubs/handler_api.php',
       DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr',
-      DEFAULT_HERO_SMS_REUSE_ENABLED = true,
+      DEFAULT_HERO_SMS_REUSE_ENABLED = false,
       createFiveSimProvider = null,
       HERO_SMS_COUNTRY_ID = 52,
       HERO_SMS_COUNTRY_LABEL = 'Thailand',
@@ -90,8 +90,6 @@
     const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
     const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
       PHONE_SMS_PROVIDER_HERO,
-      PHONE_SMS_PROVIDER_5SIM,
-      PHONE_SMS_PROVIDER_NEXSMS,
       PHONE_SMS_PROVIDER_SMSBOWER,
     ]);
     const MAX_PHONE_REUSABLE_POOL = 12;
@@ -174,12 +172,6 @@
 
     function normalizePhoneSmsProvider(value = '') {
       const normalized = String(value || '').trim().toLowerCase();
-      if (normalized === PHONE_SMS_PROVIDER_5SIM) {
-        return PHONE_SMS_PROVIDER_5SIM;
-      }
-      if (normalized === PHONE_SMS_PROVIDER_NEXSMS) {
-        return PHONE_SMS_PROVIDER_NEXSMS;
-      }
       if (normalized === PHONE_SMS_PROVIDER_SMSBOWER || normalized === 'sms-bower') {
         return PHONE_SMS_PROVIDER_SMSBOWER;
       }
@@ -474,14 +466,11 @@
     }
 
     function normalizeHeroSmsReuseEnabled(value) {
-      if (value === undefined || value === null) {
-        return Boolean(DEFAULT_HERO_SMS_REUSE_ENABLED);
-      }
-      return Boolean(value);
+      return false;
     }
 
     function normalizeFreePhoneReuseEnabled(value) {
-      return Boolean(value);
+      return false;
     }
 
     function normalizeFreePhoneReuseAutoEnabled(state = {}) {
@@ -845,10 +834,7 @@
     }
 
     function isPhoneSmsReuseEnabled(state = {}) {
-      if (normalizePhoneSmsProvider(state?.phoneSmsProvider) === PHONE_SMS_PROVIDER_FIVE_SIM) {
-        return state?.fiveSimReuseEnabled !== false;
-      }
-      return normalizeHeroSmsReuseEnabled(state?.heroSmsReuseEnabled);
+      return false;
     }
 
     function createResolvedFiveSimProvider() {

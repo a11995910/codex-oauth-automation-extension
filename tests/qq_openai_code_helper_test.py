@@ -89,15 +89,32 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
         self.assertTrue(helper.record_matches_query(record, "second@2925.com"))
         self.assertFalse(helper.record_matches_query(record, "missing@2925.com"))
 
+    def test_mailbox_scope_separates_providers_and_accounts(self):
+        qq_scope = helper.make_mailbox_scope(
+            {"provider": "qq", "email": "demo@qq.com"},
+            "INBOX",
+        )
+        mail2925_scope = helper.make_mailbox_scope(
+            {"provider": "2925", "email": "demo@2925.com"},
+            "INBOX",
+        )
+
+        self.assertEqual(qq_scope, "qq:demo@qq.com:INBOX")
+        self.assertEqual(mail2925_scope, "2925:demo@2925.com:INBOX")
+        self.assertNotEqual(qq_scope, mail2925_scope)
+
     def test_persist_config_and_records_to_database(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = pathlib.Path(tmpdir) / "helper.sqlite3"
             old_db_path = os.environ.get("QQ_OPENAI_HELPER_DB_PATH")
+            old_imap_db_path = os.environ.get("IMAP_OPENAI_HELPER_DB_PATH")
+            os.environ.pop("IMAP_OPENAI_HELPER_DB_PATH", None)
             os.environ["QQ_OPENAI_HELPER_DB_PATH"] = str(db_path)
             helper.DB_INITIALIZED = False
             try:
                 helper.init_database()
                 config = {
+                    "provider": "2925",
                     "email": "demo@2925.com",
                     "password": "mail-password-or-code",
                     "imap_host": "imap.2925mail.com",
@@ -108,6 +125,23 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
                 }
                 helper.save_config_to_db(config)
                 self.assertEqual(helper.load_config_from_db()["email"], "demo@2925.com")
+                self.assertEqual(helper.load_config_from_db()["provider"], "2925")
+
+                qq_config = {
+                    "provider": "qq",
+                    "email": "demo@qq.com",
+                    "password": "qq-imap-auth-code",
+                    "imap_host": "imap.qq.com",
+                    "imap_port": 993,
+                    "mailboxes": ["INBOX"],
+                    "max_messages": 30,
+                    "poll_interval_seconds": 8,
+                }
+                helper.save_config_to_db(qq_config)
+                profiles = {profile["provider"]: profile for profile in helper.load_profiles_from_db()}
+                self.assertEqual(helper.load_config_from_db()["provider"], "qq")
+                self.assertEqual(profiles["2925"]["email"], "demo@2925.com")
+                self.assertEqual(profiles["qq"]["email"], "demo@qq.com")
 
                 record = {
                     "id": "INBOX:100",
@@ -135,6 +169,10 @@ class QQOpenAICodeHelperTest(unittest.TestCase):
                     os.environ.pop("QQ_OPENAI_HELPER_DB_PATH", None)
                 else:
                     os.environ["QQ_OPENAI_HELPER_DB_PATH"] = old_db_path
+                if old_imap_db_path is None:
+                    os.environ.pop("IMAP_OPENAI_HELPER_DB_PATH", None)
+                else:
+                    os.environ["IMAP_OPENAI_HELPER_DB_PATH"] = old_imap_db_path
 
 
 if __name__ == "__main__":

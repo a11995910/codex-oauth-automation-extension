@@ -23,16 +23,8 @@ const btnCloseAccountRecords = document.getElementById('btn-close-account-record
 const btnClearAccountRecords = document.getElementById('btn-clear-account-records');
 const btnToggleAccountRecordsSelection = document.getElementById('btn-toggle-account-records-selection');
 const btnDeleteSelectedAccountRecords = document.getElementById('btn-delete-selected-account-records');
-const updateSection = document.getElementById('update-section');
 const btnRepoHome = document.getElementById('btn-repo-home');
 const extensionUpdateStatus = document.getElementById('extension-update-status');
-const extensionVersionMeta = document.getElementById('extension-version-meta');
-const btnReleaseLog = document.getElementById('btn-release-log');
-const updateCardVersion = document.getElementById('update-card-version');
-const updateCardSummary = document.getElementById('update-card-summary');
-const updateReleaseList = document.getElementById('update-release-list');
-const btnIgnoreRelease = document.getElementById('btn-ignore-release');
-const btnOpenRelease = document.getElementById('btn-open-release');
 const settingsCard = document.getElementById('settings-card');
 const contributionModePanel = document.getElementById('contribution-mode-panel');
 const contributionModeBadge = document.getElementById('contribution-mode-badge');
@@ -60,10 +52,6 @@ const btnSaveSettings = document.getElementById('btn-save-settings');
 const btnStop = document.getElementById('btn-stop');
 const btnReset = document.getElementById('btn-reset');
 const btnContributionMode = document.getElementById('btn-contribution-mode');
-const contributionUpdateLayer = document.getElementById('contribution-update-layer');
-const contributionUpdateHint = document.getElementById('contribution-update-hint');
-const contributionUpdateHintText = document.getElementById('contribution-update-hint-text');
-const btnDismissContributionUpdateHint = document.getElementById('btn-dismiss-contribution-update-hint');
 const stepsProgress = document.getElementById('steps-progress');
 const btnAutoRun = document.getElementById('btn-auto-run');
 const btnAutoContinue = document.getElementById('btn-auto-continue');
@@ -269,7 +257,6 @@ const inputTempEmailDomain = document.getElementById('input-temp-email-domain');
 const btnTempEmailDomainMode = document.getElementById('btn-temp-email-domain-mode');
 const cloudflareTempEmailSection = document.getElementById('cloudflare-temp-email-section');
 const btnCloudflareTempEmailUsageGuide = document.getElementById('btn-cloudflare-temp-email-usage-guide');
-const btnCloudflareTempEmailGithub = document.getElementById('btn-cloudflare-temp-email-github');
 const hotmailSection = document.getElementById('hotmail-section');
 const mail2925Section = document.getElementById('mail2925-section');
 const luckmailSection = document.getElementById('luckmail-section');
@@ -575,8 +562,6 @@ const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
 const DEFAULT_PHONE_SMS_PROVIDER = PHONE_SMS_PROVIDER_HERO;
 const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
   PHONE_SMS_PROVIDER_HERO,
-  PHONE_SMS_PROVIDER_FIVE_SIM,
-  PHONE_SMS_PROVIDER_NEXSMS,
   PHONE_SMS_PROVIDER_SMSBOWER,
 ]);
 const DEFAULT_FIVE_SIM_COUNTRY_ORDER = Object.freeze(['thailand']);
@@ -588,7 +573,7 @@ const DEFAULT_SMS_BOWER_COUNTRY_ID = 52;
 const DEFAULT_SMS_BOWER_COUNTRY_LABEL = 'Thailand';
 const DEFAULT_SMS_BOWER_SERVICE_CODE = 'dr';
 const HERO_SMS_COUNTRY_SELECTION_MAX = 3;
-const DEFAULT_HERO_SMS_REUSE_ENABLED = true;
+const DEFAULT_HERO_SMS_REUSE_ENABLED = false;
 const HERO_SMS_ACQUIRE_PRIORITY_COUNTRY = 'country';
 const HERO_SMS_ACQUIRE_PRIORITY_PRICE = 'price';
 const HERO_SMS_ACQUIRE_PRIORITY_PRICE_HIGH = 'price_high';
@@ -741,10 +726,8 @@ const DEFAULT_LOCAL_CPA_STEP9_MODE = 'submit';
 const DEFAULT_CPA_CALLBACK_MODE = 'step8';
 const MAIL_2925_MODE_PROVIDE = 'provide';
 const MAIL_2925_MODE_RECEIVE = 'receive';
-const DEFAULT_MAIL_2925_MODE = MAIL_2925_MODE_PROVIDE;
-const NEW_USER_GUIDE_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-new-user-guide-prompt-dismissed';
+const DEFAULT_MAIL_2925_MODE = MAIL_2925_MODE_RECEIVE;
 const AUTO_SKIP_FAILURES_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-skip-failures-prompt-dismissed';
-const AUTO_RUN_FALLBACK_RISK_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-run-fallback-risk-prompt-dismissed';
 const CPA_PHONE_SIGNUP_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-cpa-phone-signup-prompt-dismissed';
 const CPA_PHONE_SIGNUP_WARNING_MESSAGE = 'CPA 未适配手机号注册模式，认证成功后无法使用。请使用 SUB2API，或者认证成功后重新登录一遍进行解决。';
 const PHONE_VERIFICATION_SECTION_EXPANDED_STORAGE_KEY = 'multipage-phone-verification-section-expanded';
@@ -830,7 +813,6 @@ function rebuildStepDefinitionState(plusModeEnabled = false, options = {}) {
   SKIPPABLE_STEPS = new Set(STEP_IDS);
 }
 const CONTRIBUTION_CONTENT_PROMPT_DISMISSED_VERSION_STORAGE_KEY = 'multipage-contribution-content-prompt-dismissed-version';
-const AUTO_RUN_FALLBACK_RISK_WARNING_MIN_RUNS = 3;
 const HOTMAIL_SERVICE_MODE_REMOTE = 'remote';
 const HOTMAIL_SERVICE_MODE_LOCAL = 'local';
 const ICLOUD_PROVIDER = 'icloud';
@@ -1278,8 +1260,6 @@ const normalizeLuckmailTimestampValue = window.LuckMailUtils?.normalizeTimestamp
     const timestamp = Date.parse(String(value || ''));
     return Number.isFinite(timestamp) ? timestamp : 0;
   });
-const sidepanelUpdateService = window.SidepanelUpdateService;
-const contributionContentService = window.SidepanelContributionContentService;
 const sharedFormDialog = window.SidepanelFormDialog?.createFormDialog?.({
   overlay: sharedFormModal,
   titleNode: sharedFormModalTitle,
@@ -1356,11 +1336,6 @@ const MAIL_PROVIDER_LOGIN_CONFIGS = {
     url: 'https://wx.mail.qq.com/',
     buttonLabel: '登录',
   },
-  'cloudflare-temp-email': {
-    label: 'Cloudflare Temp Email GitHub',
-    url: 'https://github.com/dreamhunter2333/cloudflare_temp_email',
-    buttonLabel: 'GitHub',
-  },
   '2925': {
     label: '2925 邮箱',
     url: 'https://2925.com/#/mailList',
@@ -1393,8 +1368,6 @@ const LOG_LEVEL_LABELS = {
   warn: '警告',
   error: '错误',
 };
-
-const CLOUDFLARE_TEMP_EMAIL_REPOSITORY_URL = 'https://github.com/dreamhunter2333/cloudflare_temp_email';
 
 function usesGeneratedAliasMailProvider(
   provider,
@@ -1754,57 +1727,8 @@ function setPromptDismissed(storageKey, dismissed) {
   }
 }
 
-function isNewUserGuidePromptDismissed() {
-  return isPromptDismissed(NEW_USER_GUIDE_PROMPT_DISMISSED_STORAGE_KEY);
-}
-
-function setNewUserGuidePromptDismissed(dismissed) {
-  setPromptDismissed(NEW_USER_GUIDE_PROMPT_DISMISSED_STORAGE_KEY, dismissed);
-}
-
-function shouldPromptNewUserGuide() {
-  if (isNewUserGuidePromptDismissed()) {
-    return false;
-  }
-  if (!btnContributionMode || btnContributionMode.disabled) {
-    return false;
-  }
-  if (latestState?.contributionMode) {
-    return false;
-  }
-  return true;
-}
-
 function getContributionPortalUrl() {
-  return String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').trim();
-}
-
-function openNewUserGuidePrompt() {
-  return openActionModal({
-    title: '新手引导',
-    message: '如果你是第一次使用，可以先查看贡献页里的公告和使用教程。点击“查看引导”会自动打开贡献页面。',
-    alert: {
-      text: '本提示仅出现一次。',
-    },
-    actions: [
-      { id: null, label: '取消', variant: 'btn-ghost' },
-      { id: 'confirm', label: '查看引导', variant: 'btn-primary' },
-    ],
-  });
-}
-
-async function maybeShowNewUserGuidePrompt() {
-  if (!shouldPromptNewUserGuide()) {
-    return false;
-  }
-
-  setNewUserGuidePromptDismissed(true);
-  const choice = await openNewUserGuidePrompt();
-  if (choice === 'confirm') {
-    openExternalUrl(getContributionPortalUrl());
-    return true;
-  }
-  return false;
+  return '';
 }
 
 function getDismissedContributionContentPromptVersion() {
@@ -1828,24 +1752,12 @@ function setAutoSkipFailuresPromptDismissed(dismissed) {
   setPromptDismissed(AUTO_SKIP_FAILURES_PROMPT_DISMISSED_STORAGE_KEY, dismissed);
 }
 
-function isAutoRunFallbackRiskPromptDismissed() {
-  return isPromptDismissed(AUTO_RUN_FALLBACK_RISK_PROMPT_DISMISSED_STORAGE_KEY);
-}
-
-function setAutoRunFallbackRiskPromptDismissed(dismissed) {
-  setPromptDismissed(AUTO_RUN_FALLBACK_RISK_PROMPT_DISMISSED_STORAGE_KEY, dismissed);
-}
-
 function isCpaPhoneSignupPromptDismissed() {
   return isPromptDismissed(CPA_PHONE_SIGNUP_PROMPT_DISMISSED_STORAGE_KEY);
 }
 
 function setCpaPhoneSignupPromptDismissed(dismissed) {
   setPromptDismissed(CPA_PHONE_SIGNUP_PROMPT_DISMISSED_STORAGE_KEY, dismissed);
-}
-
-function shouldWarnAutoRunFallbackRisk(totalRuns, autoRunSkipFailures) {
-  return totalRuns >= AUTO_RUN_FALLBACK_RISK_WARNING_MIN_RUNS;
 }
 
 function shouldWarnCpaPhoneSignup(signupMethod = null, panelMode = null) {
@@ -1908,19 +1820,6 @@ async function openAutoSkipFailuresConfirmModal() {
     title: '自动重试说明',
     message: `开启后，自动模式在某一轮失败时，会先在当前轮自动重试；单轮最多重试 ${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次，仍失败则放弃当前轮并继续下一轮。线程间隔只在开启自动重试且总轮数大于 1 时生效。`,
     confirmLabel: '确认开启',
-  });
-
-  return {
-    confirmed: result.confirmed,
-    dismissPrompt: result.optionChecked,
-  };
-}
-
-async function openAutoRunFallbackRiskConfirmModal(totalRuns) {
-  const result = await openConfirmModalWithOption({
-    title: '自动运行风险提醒',
-    message: `当前轮数已经不适合单节点情况，请确保已经配置并打开节点轮询功能（若没有配置，请点击贡献/使用按钮，根据网页中使用教程进行配置），避免连续使用一个节点注册，导致出现手机号验证。`,
-    confirmLabel: '继续',
   });
 
   return {
@@ -3266,7 +3165,7 @@ function collectSettingsPayload() {
     });
   return {
     ...(contributionModeEnabled ? {} : {
-      panelMode: selectPanelMode.value,
+      panelMode: 'builtin-codex',
     }),
     vpsUrl: inputVpsUrl.value.trim(),
     vpsPassword: inputVpsPassword.value,
@@ -3308,9 +3207,7 @@ function collectSettingsPayload() {
     ipProxyRegion: currentIpProxyServiceProfile.region,
     codex2apiUrl: inputCodex2ApiUrl.value.trim(),
     codex2apiAdminKey: inputCodex2ApiAdminKey.value.trim(),
-    plusModeEnabled: typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
-      ? Boolean(inputPlusModeEnabled.checked)
-      : Boolean(latestState?.plusModeEnabled),
+    plusModeEnabled: false,
     plusPaymentMethod,
     paypalEmail: String(currentPayPalAccount?.email || latestState?.paypalEmail || '').trim(),
     paypalPassword: String(currentPayPalAccount?.password || latestState?.paypalPassword || ''),
@@ -3368,11 +3265,11 @@ function collectSettingsPayload() {
     ...(contributionModeEnabled ? {} : {
       customPassword: inputPassword.value,
     }),
-    mailProvider: selectMailProvider.value,
-    mail2925Mode: getSelectedMail2925Mode(),
+    mailProvider: selectMailProvider.value === '2925' ? '2925' : 'qq',
+    mail2925Mode: MAIL_2925_MODE_RECEIVE,
     mail2925UseAccountPool,
     currentMail2925AccountId: String(latestState?.currentMail2925AccountId || '').trim(),
-    emailGenerator: selectEmailGenerator.value,
+    emailGenerator: 'duck',
     customMailProviderPool: typeof normalizeCustomEmailPoolEntries === 'function'
       ? normalizeCustomEmailPoolEntries(inputCustomMailProviderPool?.value)
       : [],
@@ -3420,9 +3317,12 @@ function collectSettingsPayload() {
       ? Boolean(inputOAuthFlowTimeoutEnabled.checked)
       : true,
     phoneVerificationEnabled: Boolean(inputPhoneVerificationEnabled?.checked),
-    signupMethod: selectedSignupMethod,
+    signupMethod: 'email',
     phoneSmsProvider: phoneSmsProviderValue,
-    phoneSmsProviderOrder: phoneSmsProviderOrderValue,
+    phoneSmsProviderOrder: normalizePhoneSmsProviderOrderValue(phoneSmsProviderOrderValue, [
+      phoneSmsProviderValue,
+      PHONE_SMS_PROVIDER_SMSBOWER,
+    ]),
     verificationResendCount: normalizeVerificationResendCount(
       inputVerificationResendCount?.value,
       DEFAULT_VERIFICATION_RESEND_COUNT
@@ -3441,13 +3341,13 @@ function collectSettingsPayload() {
     smsBowerCountryLabel: smsBowerCountry.label,
     smsBowerCountryFallback,
     smsBowerServiceCode: smsBowerServiceCodeValue,
-    heroSmsReuseEnabled: heroSmsReuseEnabledValue,
-    freePhoneReuseEnabled: freePhoneReuseEnabledValue,
-    freePhoneReuseAutoEnabled: freePhoneReuseAutoEnabledValue,
+    heroSmsReuseEnabled: false,
+    freePhoneReuseEnabled: false,
+    freePhoneReuseAutoEnabled: false,
     heroSmsAcquirePriority: heroSmsAcquirePriorityValue,
     heroSmsMaxPrice: heroSmsMaxPriceValue,
     heroSmsPreferredPrice: heroSmsPreferredPriceValue,
-    phonePreferredActivation: phonePreferredActivationValue,
+    phonePreferredActivation: null,
     phoneVerificationReplacementLimit: phoneVerificationReplacementLimitValue,
     phoneCodeWaitSeconds: phoneCodeWaitSecondsValue,
     phoneCodeTimeoutWindows: phoneCodeTimeoutWindowsValue,
@@ -3470,9 +3370,7 @@ function normalizeLocalCpaStep9Mode(value = '') {
 }
 
 function normalizeMail2925Mode(value = '') {
-  return String(value || '').trim().toLowerCase() === MAIL_2925_MODE_RECEIVE
-    ? MAIL_2925_MODE_RECEIVE
-    : DEFAULT_MAIL_2925_MODE;
+  return MAIL_2925_MODE_RECEIVE;
 }
 
 function normalizeHotmailServiceMode(value = '') {
@@ -3510,20 +3408,9 @@ function normalizeAccountRunHistoryHelperBaseUrlValue(value = '') {
 
 
 function normalizePhoneSmsProvider(value = '') {
-  if (typeof window !== 'undefined' && window.PhoneSmsProviderRegistry?.normalizeProviderId) {
-    return window.PhoneSmsProviderRegistry.normalizeProviderId(value);
-  }
   const normalized = String(value || '').trim().toLowerCase();
-  const fiveSimProvider = typeof PHONE_SMS_PROVIDER_FIVE_SIM !== 'undefined' ? PHONE_SMS_PROVIDER_FIVE_SIM : '5sim';
-  const nexSmsProvider = typeof PHONE_SMS_PROVIDER_NEXSMS !== 'undefined' ? PHONE_SMS_PROVIDER_NEXSMS : 'nexsms';
   const smsBowerProvider = typeof PHONE_SMS_PROVIDER_SMSBOWER !== 'undefined' ? PHONE_SMS_PROVIDER_SMSBOWER : 'smsbower';
   const heroProvider = typeof PHONE_SMS_PROVIDER_HERO_SMS !== 'undefined' ? PHONE_SMS_PROVIDER_HERO_SMS : 'hero-sms';
-  if (normalized === fiveSimProvider) {
-    return fiveSimProvider;
-  }
-  if (normalized === nexSmsProvider) {
-    return nexSmsProvider;
-  }
   if (normalized === smsBowerProvider || normalized === 'sms-bower') {
     return smsBowerProvider;
   }
@@ -4271,10 +4158,7 @@ function normalizePhoneCodePollMaxRoundsValue(value, fallback = DEFAULT_PHONE_CO
 }
 
 function normalizeHeroSmsReuseEnabledValue(value) {
-  if (value === undefined || value === null) {
-    return DEFAULT_HERO_SMS_REUSE_ENABLED;
-  }
-  return Boolean(value);
+  return false;
 }
 
 function normalizeHeroSmsAcquirePriority(value = '') {
@@ -6989,24 +6873,18 @@ function updateAccountRunHistorySettingsUI() {
 }
 
 function normalizeSignupMethod(value = '') {
-  return String(value || '').trim().toLowerCase() === 'phone'
-    ? 'phone'
-    : 'email';
+  return 'email';
 }
 
 function normalizePanelMode(value = '') {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'sub2api' || normalized === 'codex2api' || normalized === 'builtin-codex' || normalized === 'manager') {
-    return normalized;
-  }
-  return 'cpa';
+  return 'builtin-codex';
 }
 
 function getSelectedPanelMode() {
   const selectedValue = typeof selectPanelMode !== 'undefined' && selectPanelMode
     ? selectPanelMode.value
     : (typeof latestState !== 'undefined' ? latestState?.panelMode : '');
-  return normalizePanelMode(selectedValue || 'cpa');
+  return normalizePanelMode(selectedValue || 'builtin-codex');
 }
 
 function getSelectedSignupMethod() {
@@ -7083,9 +6961,7 @@ function updateSignupMethodUI(options = {}) {
     }
   });
   syncStepDefinitionsForMode(
-    typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
-      ? Boolean(inputPlusModeEnabled.checked)
-      : Boolean(latestState?.plusModeEnabled),
+    false,
     {
       plusPaymentMethod: getSelectedPlusPaymentMethod(latestState),
       signupMethod: selectedMethod,
@@ -7235,6 +7111,29 @@ function updatePhoneVerificationSettingsUI() {
 }
 
 function updatePlusModeUI() {
+  if (typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled) {
+    inputPlusModeEnabled.checked = false;
+  }
+  [
+    rowPlusMode,
+    rowPlusPaymentMethod,
+    rowPayPalAccount,
+    rowGpcHelperApi,
+    rowGpcHelperCardKey,
+    rowGpcHelperCountryCode,
+    rowGpcHelperPhone,
+    rowGpcHelperOtpChannel,
+    rowGpcHelperLocalSmsEnabled,
+    rowGpcHelperLocalSmsUrl,
+    rowGpcHelperPin,
+    rowGoPayCountryCode,
+    rowGoPayPhone,
+    rowGoPayOtp,
+    rowGoPayPin,
+  ].forEach((row) => {
+    if (row) row.style.display = 'none';
+  });
+  return;
   const paypalValue = typeof PLUS_PAYMENT_METHOD_PAYPAL !== 'undefined' ? PLUS_PAYMENT_METHOD_PAYPAL : 'paypal';
   const gopayValue = typeof PLUS_PAYMENT_METHOD_GOPAY !== 'undefined' ? PLUS_PAYMENT_METHOD_GOPAY : 'gopay';
   const gpcValue = typeof PLUS_PAYMENT_METHOD_GPC_HELPER !== 'undefined' ? PLUS_PAYMENT_METHOD_GPC_HELPER : 'gpc-helper';
@@ -7924,7 +7823,7 @@ function renderStepsList() {
 }
 
 function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOrOptions = {}, maybeOptions = {}) {
-  const nextPlusModeEnabled = Boolean(plusModeEnabled);
+  const nextPlusModeEnabled = false;
   const options = typeof plusPaymentMethodOrOptions === 'string'
     ? maybeOptions
     : (plusPaymentMethodOrOptions || {});
@@ -8024,7 +7923,7 @@ function applySettingsState(state) {
   }
   syncPasswordField(state || {});
   if (typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled) {
-    inputPlusModeEnabled.checked = Boolean(state?.plusModeEnabled);
+    inputPlusModeEnabled.checked = false;
   }
   if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
     selectPlusPaymentMethod.value = normalizePlusPaymentMethod(state?.plusPaymentMethod);
@@ -8201,33 +8100,10 @@ function applySettingsState(state) {
   }
   inputCodex2ApiUrl.value = state?.codex2apiUrl || '';
   inputCodex2ApiAdminKey.value = state?.codex2apiAdminKey || '';
-  const restoredMailProvider = isCustomMailProvider(state?.mailProvider)
-    || [ICLOUD_PROVIDER, 'hotmail-api', GMAIL_PROVIDER, 'luckmail-api', '163', '163-vip', '126', 'qq', 'inbucket', '2925', 'cloudflare-temp-email'].includes(String(state?.mailProvider || '').trim())
-    ? String(state?.mailProvider || '163').trim()
-    : (String(state?.emailGenerator || '').trim().toLowerCase() === 'custom'
-      || String(state?.emailGenerator || '').trim().toLowerCase() === 'manual'
-      ? 'custom'
-      : '163');
+  const restoredMailProvider = String(state?.mailProvider || '').trim() === '2925' ? '2925' : 'qq';
   selectMailProvider.value = restoredMailProvider;
-  setMail2925Mode(state?.mail2925Mode);
-  {
-    const restoredEmailGenerator = String(state?.emailGenerator || '').trim().toLowerCase();
-    if (restoredMailProvider === GMAIL_PROVIDER) {
-      selectEmailGenerator.value = restoredEmailGenerator === CUSTOM_EMAIL_POOL_GENERATOR
-        ? CUSTOM_EMAIL_POOL_GENERATOR
-        : GMAIL_ALIAS_GENERATOR;
-    } else if (restoredEmailGenerator === CUSTOM_EMAIL_POOL_GENERATOR) {
-      selectEmailGenerator.value = CUSTOM_EMAIL_POOL_GENERATOR;
-    } else if (restoredEmailGenerator === 'icloud') {
-      selectEmailGenerator.value = 'icloud';
-    } else if (restoredEmailGenerator === 'cloudflare') {
-      selectEmailGenerator.value = 'cloudflare';
-    } else if (restoredEmailGenerator === 'cloudflare-temp-email') {
-      selectEmailGenerator.value = 'cloudflare-temp-email';
-    } else {
-      selectEmailGenerator.value = 'duck';
-    }
-  }
+  setMail2925Mode(MAIL_2925_MODE_RECEIVE);
+  selectEmailGenerator.value = 'duck';
   if (selectIcloudHostPreference) {
     selectIcloudHostPreference.value = String(state?.icloudHostPreference || '').trim().toLowerCase() === 'icloud.com'
       ? 'icloud.com'
@@ -8386,13 +8262,13 @@ function applySettingsState(state) {
     syncLatestState({ smsBowerServiceCode: defaultSmsBowerServiceCode });
   }
   if (typeof inputHeroSmsReuseEnabled !== 'undefined' && inputHeroSmsReuseEnabled) {
-    inputHeroSmsReuseEnabled.checked = normalizeHeroSmsReuseEnabledValue(state?.heroSmsReuseEnabled);
+    inputHeroSmsReuseEnabled.checked = false;
   }
   if (typeof inputFreePhoneReuseEnabled !== 'undefined' && inputFreePhoneReuseEnabled) {
-    inputFreePhoneReuseEnabled.checked = Boolean(state?.freePhoneReuseEnabled);
+    inputFreePhoneReuseEnabled.checked = false;
   }
   if (typeof inputFreePhoneReuseAutoEnabled !== 'undefined' && inputFreePhoneReuseAutoEnabled) {
-    inputFreePhoneReuseAutoEnabled.checked = Boolean(state?.freePhoneReuseAutoEnabled);
+    inputFreePhoneReuseAutoEnabled.checked = false;
   }
   if (typeof selectHeroSmsAcquirePriority !== 'undefined' && selectHeroSmsAcquirePriority) {
     selectHeroSmsAcquirePriority.value = normalizeHeroSmsAcquirePriority(state?.heroSmsAcquirePriority);
@@ -8586,57 +8462,23 @@ function openExternalUrl(url) {
 }
 
 function getRepositoryHomeUrl() {
-  const serviceRepositoryUrl = String(sidepanelUpdateService?.repositoryUrl || '').trim();
-  if (serviceRepositoryUrl) {
-    return serviceRepositoryUrl;
-  }
-
-  const releasesPageUrl = String(sidepanelUpdateService?.releasesPageUrl || '').trim();
-  if (releasesPageUrl) {
-    return releasesPageUrl.replace(/\/releases\/?$/, '');
-  }
-
-  return 'https://github.com/QLHazyCoder/codex-oauth-automation-extension';
+  return '';
 }
 
 function getReleaseListUrl() {
-  const snapshotReleaseListUrl = String(currentReleaseSnapshot?.releasesPageUrl || '').trim();
-  if (snapshotReleaseListUrl) {
-    return snapshotReleaseListUrl;
-  }
-
-  const serviceReleaseListUrl = String(sidepanelUpdateService?.releasesPageUrl || '').trim();
-  if (serviceReleaseListUrl) {
-    return serviceReleaseListUrl;
-  }
-
-  return `${getRepositoryHomeUrl()}/releases`;
+  return '';
 }
 
 function openRepositoryHomePage() {
-  openExternalUrl(getRepositoryHomeUrl());
+  showToast?.('猛蹬小店', 'info', 1200);
 }
 
 function openReleaseListPage() {
-  openExternalUrl(getReleaseListUrl());
+  showToast?.('猛蹬小店', 'info', 1200);
 }
 
 function ignoreCurrentReleaseUpdate() {
-  if (!sidepanelUpdateService?.ignoreReleaseSnapshot) {
-    return;
-  }
-
-  const ignoredVersion = sidepanelUpdateService.ignoreReleaseSnapshot(currentReleaseSnapshot);
-  if (!ignoredVersion) {
-    return;
-  }
-
-  renderReleaseSnapshot({
-    ...currentReleaseSnapshot,
-    status: 'ignored',
-    ignoredVersion,
-  });
-  showToast(`已忽略 ${ignoredVersion} 更新，有新版本时会再次提醒。`, 'info', 2200);
+  return false;
 }
 
 function openCloudflareTempEmailUsageGuidePage() {
@@ -8647,369 +8489,45 @@ function openCloudflareTempEmailUsageGuidePage() {
   openExternalUrl(targetUrl);
 }
 
-function openCloudflareTempEmailRepositoryPage() {
-  openExternalUrl(CLOUDFLARE_TEMP_EMAIL_REPOSITORY_URL);
-}
-
-function createUpdateNoteList(notes = []) {
-  if (!Array.isArray(notes) || notes.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'update-release-empty';
-    empty.textContent = '该版本未提供可解析的更新说明，请查看完整更新日志。';
-    return empty;
-  }
-
-  const list = document.createElement('ul');
-  list.className = 'update-release-notes';
-
-  notes.forEach((note) => {
-    const item = document.createElement('li');
-    item.textContent = note;
-    list.appendChild(item);
-  });
-
-  return list;
-}
-
-function renderUpdateReleaseList(releases = []) {
-  if (!updateReleaseList) {
-    return;
-  }
-
-  updateReleaseList.innerHTML = '';
-
-  releases.forEach((release) => {
-    const item = document.createElement('article');
-    item.className = 'update-release-item';
-
-    const head = document.createElement('div');
-    head.className = 'update-release-head';
-
-    const titleRow = document.createElement('div');
-    titleRow.className = 'update-release-title-row';
-
-    const version = document.createElement('span');
-    version.className = 'update-release-version';
-    version.textContent = release.displayVersion || `Ultra${release.version}`;
-    titleRow.appendChild(version);
-
-    if (release.title) {
-      const name = document.createElement('span');
-      name.className = 'update-release-name';
-      name.textContent = release.title;
-      titleRow.appendChild(name);
-    }
-
-    head.appendChild(titleRow);
-
-    const publishedAt = sidepanelUpdateService?.formatReleaseDate?.(release.publishedAt) || '';
-    if (publishedAt) {
-      const date = document.createElement('span');
-      date.className = 'update-release-date';
-      date.textContent = publishedAt;
-      head.appendChild(date);
-    }
-
-    item.appendChild(head);
-    item.appendChild(createUpdateNoteList(release.notes));
-    updateReleaseList.appendChild(item);
-  });
-}
-
 function resetUpdateCard() {
-  if (updateSection) {
-    updateSection.hidden = true;
-  }
-  if (updateCardVersion) {
-    updateCardVersion.textContent = '';
-  }
-  if (updateCardSummary) {
-    updateCardSummary.textContent = '';
-  }
-  if (updateReleaseList) {
-    updateReleaseList.innerHTML = '';
-  }
-  if (btnOpenRelease) {
-    btnOpenRelease.hidden = true;
-    btnOpenRelease.onclick = null;
-  }
-  if (btnIgnoreRelease) {
-    btnIgnoreRelease.hidden = true;
-    btnIgnoreRelease.onclick = null;
-  }
+  return null;
 }
 
 function renderReleaseSnapshot(snapshot) {
   currentReleaseSnapshot = snapshot;
-
-  if (!extensionUpdateStatus || !extensionVersionMeta) {
-    return;
-  }
-
-  extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed', 'is-version-label');
-
-  const localVersionText = snapshot?.localVersion || '';
-  const logUrl = snapshot?.logUrl || snapshot?.releasesPageUrl || sidepanelUpdateService?.releasesPageUrl || '';
-
-  if (btnReleaseLog) {
-    btnReleaseLog.onclick = () => openExternalUrl(logUrl);
-    btnReleaseLog.hidden = true;
-  }
-  extensionVersionMeta.hidden = true;
-  extensionVersionMeta.textContent = '';
-
-  switch (snapshot?.status) {
-    case 'update-available': {
-      extensionUpdateStatus.textContent = '有更新';
-      extensionUpdateStatus.classList.add('is-update-available');
-      if (btnReleaseLog) {
-        btnReleaseLog.hidden = false;
-      }
-
-      if (updateSection) {
-        updateSection.hidden = false;
-      }
-      if (updateCardVersion) {
-        updateCardVersion.textContent = `最新版本 ${snapshot.latestVersion}`;
-      }
-      if (updateCardSummary) {
-        const updateCount = Array.isArray(snapshot.newerReleases) ? snapshot.newerReleases.length : 0;
-        updateCardSummary.textContent = updateCount > 1
-          ? `当前 ${localVersionText}，共有 ${updateCount} 个新版本可更新。`
-          : `当前 ${localVersionText}，可更新到 ${snapshot.latestVersion}。`;
-      }
-      renderUpdateReleaseList(snapshot.newerReleases || []);
-      if (btnOpenRelease) {
-        btnOpenRelease.hidden = false;
-        btnOpenRelease.textContent = '前往更新';
-        btnOpenRelease.onclick = () => openExternalUrl(logUrl);
-      }
-      if (btnIgnoreRelease) {
-        btnIgnoreRelease.hidden = false;
-        btnIgnoreRelease.onclick = ignoreCurrentReleaseUpdate;
-      }
-      break;
-    }
-
-    case 'ignored': {
-      extensionUpdateStatus.textContent = localVersionText || 'Ultra0.0';
-      extensionUpdateStatus.classList.add('is-version-label');
-      resetUpdateCard();
-      break;
-    }
-
-    case 'latest': {
-      extensionUpdateStatus.textContent = localVersionText || 'Ultra0.0';
-      extensionUpdateStatus.classList.add('is-version-label');
-      resetUpdateCard();
-      break;
-    }
-
-    case 'empty': {
-      extensionUpdateStatus.textContent = localVersionText || 'Ultra0.0';
-      extensionUpdateStatus.classList.add('is-version-label');
-      resetUpdateCard();
-      break;
-    }
-
-    case 'error':
-    default: {
-      extensionUpdateStatus.textContent = localVersionText || 'Ultra0.0';
-      extensionUpdateStatus.classList.add('is-version-label', 'is-check-failed');
-      extensionVersionMeta.textContent = snapshot?.errorMessage || 'GitHub Releases 检查失败';
-      extensionVersionMeta.hidden = false;
-      resetUpdateCard();
-      break;
-    }
-  }
+  resetUpdateCard();
 }
 
 async function initializeReleaseInfo() {
-  const fallbackReleaseUrl = sidepanelUpdateService?.releasesPageUrl || 'https://github.com/QLHazyCoder/codex-oauth-automation-extension/releases';
-
-  if (btnReleaseLog) {
-    btnReleaseLog.onclick = () => openExternalUrl(currentReleaseSnapshot?.logUrl || fallbackReleaseUrl);
-  }
-
-  if (!extensionUpdateStatus || !extensionVersionMeta) {
-    return;
-  }
-
-  const localVersion = sidepanelUpdateService?.getLocalVersionLabel?.(chrome.runtime.getManifest())
-    || chrome.runtime.getManifest()?.version_name
-    || (chrome.runtime.getManifest()?.version ? `Ultra${chrome.runtime.getManifest().version}` : '');
-  extensionUpdateStatus.textContent = localVersion || 'Ultra0.0';
-  extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed');
-  extensionUpdateStatus.classList.add('is-version-label');
-  extensionVersionMeta.hidden = true;
-  extensionVersionMeta.textContent = '';
-  if (btnReleaseLog) {
-    btnReleaseLog.hidden = true;
+  if (extensionUpdateStatus) {
+    extensionUpdateStatus.textContent = '猛蹬小店';
+    extensionUpdateStatus.classList.remove('is-update-available', 'is-check-failed');
+    extensionUpdateStatus.classList.add('is-version-label');
   }
   resetUpdateCard();
-
-  if (!sidepanelUpdateService) {
-    extensionVersionMeta.textContent = '更新检查服务不可用';
-    extensionVersionMeta.hidden = false;
-    return;
-  }
-
-  const snapshot = await sidepanelUpdateService.getReleaseSnapshot();
-  renderReleaseSnapshot(snapshot);
-}
-
-function getContributionUpdateHintMessage(snapshot = currentContributionContentSnapshot) {
-  const lines = getContributionUpdatePromptLines(snapshot);
-  if (!lines.length) {
-    return '';
-  }
-  if (lines.length === 1) {
-    return lines[0];
-  }
-  return lines.map((line, index) => `${index + 1}. ${line}`).join('\n');
-}
-
-function getContributionUpdatePromptLines(snapshot = currentContributionContentSnapshot) {
-  if (!snapshot?.promptVersion) {
-    return [];
-  }
-
-  const items = Array.isArray(snapshot.items) ? snapshot.items : [];
-  const autoRunNoticeItem = items.find((item) =>
-    item
-    && String(item.slug || '').trim().toLowerCase() === 'auto_run_notice'
-  );
-  if (autoRunNoticeItem) {
-    const noticeText = String(autoRunNoticeItem.text || '').trim();
-    return autoRunNoticeItem.isVisible && noticeText ? [noticeText] : [];
-  }
-
-  const hasAnnouncementOrTutorial = items.some((item) =>
-    item
-    && item.isVisible
-    && ['announcement', 'tutorial'].includes(String(item.slug || '').trim().toLowerCase())
-  );
-  const hasQuestionnaire = items.some((item) =>
-    item
-    && item.isVisible
-    && String(item.slug || '').trim().toLowerCase() === 'questionnaire'
-  );
-
-  const lines = [];
-  if (hasAnnouncementOrTutorial) {
-    lines.push('公告 / 使用教程有更新了，可点上方“贡献/使用”查看。');
-  }
-  if (hasQuestionnaire) {
-    lines.push('有新的征求意见，请佬友共同参与选择。');
-  }
-  return lines;
+  return null;
 }
 
 function positionContributionUpdateHint() {
-  if (!contributionUpdateLayer || !contributionUpdateHint || !btnContributionMode) {
-    return;
-  }
-  if (contributionUpdateLayer.hidden || contributionUpdateHint.hidden) {
-    return;
-  }
-
-  const buttonRect = btnContributionMode.getBoundingClientRect();
-  const viewportWidth = Math.max(document.documentElement?.clientWidth || 0, window.innerWidth || 0);
-  const viewportHeight = Math.max(document.documentElement?.clientHeight || 0, window.innerHeight || 0);
-  const hintWidth = contributionUpdateHint.offsetWidth || 220;
-  const hintHeight = contributionUpdateHint.offsetHeight || 56;
-  const viewportPadding = 12;
-  const gap = 10;
-
-  const maxLeft = Math.max(viewportPadding, viewportWidth - hintWidth - viewportPadding);
-  const left = Math.min(Math.max(viewportPadding, Math.round(buttonRect.left)), maxLeft);
-  const shouldPlaceAbove = (buttonRect.bottom + gap + hintHeight) > (viewportHeight - viewportPadding)
-    && buttonRect.top > (hintHeight + gap + viewportPadding);
-  const top = shouldPlaceAbove
-    ? Math.max(viewportPadding, Math.round(buttonRect.top - hintHeight - gap))
-    : Math.max(viewportPadding, Math.round(buttonRect.bottom + gap));
-  const buttonCenter = Math.round(buttonRect.left + (buttonRect.width / 2));
-  const arrowOffset = Math.min(Math.max(16, buttonCenter - left), Math.max(16, hintWidth - 16));
-
-  contributionUpdateHint.style.left = `${left}px`;
-  contributionUpdateHint.style.top = `${top}px`;
-  contributionUpdateHint.style.setProperty('--contribution-update-arrow-left', `${arrowOffset}px`);
+  return null;
 }
 
 function shouldShowContributionUpdateHint(snapshot = currentContributionContentSnapshot) {
-  const promptVersion = String(snapshot?.promptVersion || '').trim();
-  if (!contributionUpdateLayer || !contributionUpdateHint || !contributionUpdateHintText || !btnContributionMode) {
-    return false;
-  }
-  if (!promptVersion) {
-    return false;
-  }
-  if (!getContributionUpdatePromptLines(snapshot).length) {
-    return false;
-  }
-  if (promptVersion === getDismissedContributionContentPromptVersion()) {
-    return false;
-  }
-  if (latestState?.contributionMode) {
-    return false;
-  }
-  return !btnContributionMode.disabled;
+  return false;
 }
 
 function renderContributionUpdateHint(snapshot = currentContributionContentSnapshot) {
-  if (!contributionUpdateLayer || !contributionUpdateHint) {
-    return;
-  }
-
-  const visible = shouldShowContributionUpdateHint(snapshot);
-  contributionUpdateLayer.hidden = !visible;
-  contributionUpdateHint.hidden = !visible;
-  if (!visible || !contributionUpdateHintText) {
-    return;
-  }
-
-  contributionUpdateHintText.textContent = getContributionUpdateHintMessage(snapshot);
-  if (typeof window.requestAnimationFrame === 'function') {
-    window.requestAnimationFrame(() => positionContributionUpdateHint());
-    return;
-  }
-  positionContributionUpdateHint();
+  return null;
 }
 
 function dismissContributionUpdateHint() {
-  const promptVersion = String(currentContributionContentSnapshot?.promptVersion || '').trim();
-  if (promptVersion) {
-    setDismissedContributionContentPromptVersion(promptVersion);
-  }
-  renderContributionUpdateHint();
+  return null;
 }
 
 async function refreshContributionContentHint() {
-  if (!contributionContentService?.getContentUpdateSnapshot) {
-    currentContributionContentSnapshot = null;
-    renderContributionUpdateHint();
-    return null;
-  }
-  if (contributionContentSnapshotRequestInFlight) {
-    return contributionContentSnapshotRequestInFlight;
-  }
-
-  contributionContentSnapshotRequestInFlight = contributionContentService.getContentUpdateSnapshot()
-    .then((snapshot) => {
-      currentContributionContentSnapshot = snapshot;
-      renderContributionUpdateHint(snapshot);
-      return snapshot;
-    })
-    .catch((error) => {
-      currentContributionContentSnapshot = null;
-      renderContributionUpdateHint(null);
-      throw error;
-    })
-    .finally(() => {
-      contributionContentSnapshotRequestInFlight = null;
-    });
-
-  return contributionContentSnapshotRequestInFlight;
+  currentContributionContentSnapshot = null;
+  renderContributionUpdateHint(null);
+  return null;
 }
 
 function syncPasswordField(state) {
@@ -9056,21 +8574,6 @@ function normalizeLuckmailEmailType(value = '') {
 }
 
 function getSelectedEmailGenerator() {
-  const generator = String(selectEmailGenerator.value || '').trim().toLowerCase();
-  if (generator === 'custom' || generator === 'manual') {
-    return 'custom';
-  }
-  if (generator === GMAIL_ALIAS_GENERATOR) {
-    return GMAIL_ALIAS_GENERATOR;
-  }
-  if (generator === CUSTOM_EMAIL_POOL_GENERATOR) {
-    return CUSTOM_EMAIL_POOL_GENERATOR;
-  }
-  if (generator === 'icloud') {
-    return 'icloud';
-  }
-  if (generator === 'cloudflare') return 'cloudflare';
-  if (generator === 'cloudflare-temp-email') return 'cloudflare-temp-email';
   return 'duck';
 }
 
@@ -10720,9 +10223,9 @@ const contributionModeManager = window.SidepanelContributionMode?.createContribu
     sendMessage: (message) => chrome.runtime.sendMessage(message),
   },
   constants: {
-    contributionOauthUrl: `${String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, '')}/oauth/`,
-    contributionPortalUrl: String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, ''),
-    contributionUploadUrl: `${String(contributionContentService?.portalUrl || 'https://apikey.qzz.io').replace(/\/+$/, '')}/upload`,
+    contributionOauthUrl: '',
+    contributionPortalUrl: '',
+    contributionUploadUrl: '',
   },
 });
 const baseRenderContributionMode = contributionModeManager?.render
@@ -11125,19 +10628,6 @@ btnCloudflareTempEmailUsageGuide?.addEventListener('click', () => {
   openCloudflareTempEmailUsageGuidePage();
 });
 
-btnCloudflareTempEmailGithub?.addEventListener('click', () => {
-  openCloudflareTempEmailRepositoryPage();
-});
-
-extensionUpdateStatus?.addEventListener('click', () => {
-  openReleaseListPage();
-});
-
-btnDismissContributionUpdateHint?.addEventListener('click', (event) => {
-  event.stopPropagation();
-  dismissContributionUpdateHint();
-});
-
 configMenu?.addEventListener('click', (event) => {
   event.stopPropagation();
 });
@@ -11222,18 +10712,6 @@ async function startAutoRunFromCurrentSettings() {
       return false;
     }
     mode = choice;
-  }
-
-  if (shouldWarnAutoRunFallbackRisk(totalRuns, autoRunSkipFailures)
-    && !isAutoRunFallbackRiskPromptDismissed()) {
-    const result = await openAutoRunFallbackRiskConfirmModal(totalRuns);
-    if (!result.confirmed) {
-      clearPendingAutoRunStartRunCount();
-      return false;
-    }
-    if (result.dismissPrompt) {
-      setAutoRunFallbackRiskPromptDismissed(true);
-    }
   }
 
   btnAutoRun.disabled = true;
@@ -13731,14 +13209,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         inputSmsBowerServiceCode.value = normalizeNexSmsServiceCodeValue(message.payload.smsBowerServiceCode || DEFAULT_SMS_BOWER_SERVICE_CODE);
       }
       if (message.payload.heroSmsReuseEnabled !== undefined && inputHeroSmsReuseEnabled) {
-        inputHeroSmsReuseEnabled.checked = normalizeHeroSmsReuseEnabledValue(message.payload.heroSmsReuseEnabled);
+        inputHeroSmsReuseEnabled.checked = false;
       }
       if (message.payload.freePhoneReuseEnabled !== undefined && inputFreePhoneReuseEnabled) {
-        inputFreePhoneReuseEnabled.checked = Boolean(message.payload.freePhoneReuseEnabled);
+        inputFreePhoneReuseEnabled.checked = false;
         updatePhoneVerificationSettingsUI();
       }
       if (message.payload.freePhoneReuseAutoEnabled !== undefined && inputFreePhoneReuseAutoEnabled) {
-        inputFreePhoneReuseAutoEnabled.checked = Boolean(message.payload.freePhoneReuseAutoEnabled);
+        inputFreePhoneReuseAutoEnabled.checked = false;
         updatePhoneVerificationSettingsUI();
       }
       if (message.payload.heroSmsAcquirePriority !== undefined && selectHeroSmsAcquirePriority) {
@@ -14107,25 +13585,12 @@ updateSaveButtonState();
 updateConfigMenuControls();
 setLocalCpaStep9Mode(DEFAULT_LOCAL_CPA_STEP9_MODE);
 setMail2925Mode(DEFAULT_MAIL_2925_MODE);
-initializeReleaseInfo().catch((err) => {
-  console.error('Failed to initialize release info:', err);
-});
 Promise.allSettled([
   loadHeroSmsCountries(),
-  loadFiveSimCountries(),
-  loadNexSmsCountries({ silent: true }),
 ]).then((results) => {
   const heroResult = results[0];
-  const fiveSimResult = results[1];
-  const nexSmsResult = results[2];
   if (heroResult?.status === 'rejected') {
     console.error('Failed to load HeroSMS countries:', heroResult.reason);
-  }
-  if (fiveSimResult?.status === 'rejected') {
-    console.error('Failed to load 5sim countries:', fiveSimResult.reason);
-  }
-  if (nexSmsResult?.status === 'rejected') {
-    console.error('Failed to load NexSMS countries:', nexSmsResult.reason);
   }
   return restoreState().then(() => {
     syncPasswordToggleLabel();
@@ -14140,12 +13605,7 @@ Promise.allSettled([
     updatePanelModeUI();
     updateButtonStates();
     updateStatusDisplay(latestState);
-    return refreshContributionContentHint()
-      .catch((error) => {
-        console.warn('Failed to refresh contribution content hint during initialization:', error);
-        return null;
-      })
-      .then(() => maybeShowNewUserGuidePrompt());
+    return null;
   }).catch((err) => {
     console.error('Failed to initialize sidepanel state:', err);
   });

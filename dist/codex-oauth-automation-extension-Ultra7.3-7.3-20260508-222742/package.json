@@ -1,8 +1,0 @@
-{
-  "name": "codex-oauth-automation-extension",
-  "license": "MIT",
-  "private": true,
-  "scripts": {
-    "test": "node --test tests/*.test.js"
-  }
-}

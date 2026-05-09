@@ -135,7 +135,7 @@
 当前约定示例：
 
 - `contributionMode` 是 sidepanel 的运行态 UI 模式，不是新的 `panelMode`
-- `panelMode` 当前允许 `cpa | sub2api | codex2api`
+- `panelMode` 当前允许 `cpa | sub2api | codex2api | builtin-codex | manager`
 - 运行态模式不能混进 `PERSISTED_SETTING_DEFAULTS`
 - 运行态模式不能混进配置导入/导出
 - 如果运行态模式会临时覆盖某些持久配置的显示值，必须同时处理好“退出模式后恢复”和“自动保存不能误覆盖原配置”这两个问题

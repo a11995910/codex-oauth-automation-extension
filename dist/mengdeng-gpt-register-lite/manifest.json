@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "codex-oauth-automation-extension",
+  "name": "猛蹬GPT注册器",
   "version": "7.3",
-  "version_name": "Ultra7.3",
-  "description": "用于自动执行多步骤 OAuth 注册流程",
+  "version_name": "猛蹬小店",
+  "description": "用于自动执行 GPT 账号注册并生成内置 Codex JSON 的简化版扩展",
   "permissions": [
     "sidePanel",
     "alarms",
@@ -22,8 +22,6 @@
     "activeTab"
   ],
   "host_permissions": [
-    "https://*.icloud.com/*",
-    "https://*.icloud.com.cn/*",
     "<all_urls>"
   ],
   "background": {
@@ -67,35 +65,6 @@
         "content/activation-utils.js",
         "content/utils.js",
         "content/qq-mail.js"
-      ],
-      "all_frames": true,
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://mail.163.com/*",
-        "https://*.mail.163.com/*",
-        "https://webmail.vip.163.com/*",
-        "https://mail.126.com/*",
-        "https://*.mail.126.com/*"
-      ],
-      "js": [
-        "content/activation-utils.js",
-        "content/utils.js",
-        "content/mail-163.js"
-      ],
-      "all_frames": true,
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.icloud.com/*",
-        "https://www.icloud.com.cn/*"
-      ],
-      "js": [
-        "content/activation-utils.js",
-        "content/utils.js",
-        "content/icloud-mail.js"
       ],
       "all_frames": true,
       "run_at": "document_idle"

@@ -55,6 +55,7 @@ test('sidepanel run count input no longer hardcodes max=50', () => {
 
   assert.ok(inputTag, 'run count input should exist');
   assert.doesNotMatch(inputTag[0], /\smax="50"/);
+  assert.match(inputTag[0], /\svalue="5"/);
 });
 
 test('sidepanel getRunCountValue no longer clamps run count to 50', () => {
@@ -62,6 +63,7 @@ test('sidepanel getRunCountValue no longer clamps run count to 50', () => {
   const bundle = extractFunction(source, 'getRunCountValue');
 
   const api = new Function(`
+const DEFAULT_AUTO_RUN_TOTAL_RUNS = 5;
 const inputRunCount = { value: '88' };
 ${bundle}
 return {
@@ -75,6 +77,8 @@ return {
   assert.equal(api.getRunCountValue(), 88);
   api.setValue('0');
   assert.equal(api.getRunCountValue(), 1);
+  api.setValue('');
+  assert.equal(api.getRunCountValue(), 5);
 });
 
 test('sidepanel idle auto-run status does not reset manual run count input', () => {

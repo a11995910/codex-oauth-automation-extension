@@ -2,6 +2,93 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const test = require('node:test');
 
+test('platform verify module exchanges builtin codex callback and downloads json', async () => {
+  const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep10;`)({});
+
+  const completed = [];
+  const logs = [];
+  const calls = [];
+  const executor = api.createStep10Executor({
+    addLog: async (message, level = 'info', options = {}) => {
+      logs.push({ message, level, step: options.step, stepKey: options.stepKey });
+    },
+    builtinCodexAuth: {
+      exchangeCodeForTokens: async (code, verifier, options) => {
+        calls.push({ type: 'exchange', code, verifier, options });
+        return { id_token: 'id-token', access_token: 'access-token', refresh_token: 'refresh-token' };
+      },
+      buildCodexAuthJson: async (tokenResponse) => {
+        calls.push({ type: 'build', tokenResponse });
+        return {
+          fileName: 'codex-flow@example.com-plus.json',
+          authJson: {
+            id_token: 'id-token',
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+            account_id: 'account-123',
+            last_refresh: '2026-05-09T00:00:00.000Z',
+            email: 'flow@example.com',
+            type: 'codex',
+            expired: '2026-05-09T01:00:00.000Z',
+          },
+          authInfo: { email: 'flow@example.com', accountId: 'account-123', planType: 'plus' },
+        };
+      },
+      downloadAuthJson: async (fileName, authJson) => {
+        calls.push({ type: 'download', fileName, authJson });
+      },
+    },
+    chrome: {},
+    closeConflictingTabsForSource: async () => {},
+    completeStepFromBackground: async (step, payload) => {
+      completed.push({ step, payload });
+    },
+    ensureContentScriptReadyOnTab: async () => {},
+    getPanelMode: () => 'builtin-codex',
+    getTabId: async () => 0,
+    isLocalhostOAuthCallbackUrl: (value) => String(value || '').includes('/auth/callback?code='),
+    isTabAlive: async () => false,
+    normalizeCodex2ApiUrl: (value) => value,
+    normalizeSub2ApiUrl: (value) => value,
+    rememberSourceLastUrl: async () => {},
+    reuseOrCreateTab: async () => 0,
+    sendToContentScript: async () => ({}),
+    sendToContentScriptResilient: async () => ({}),
+    shouldBypassStep9ForLocalCpa: () => false,
+    SUB2API_STEP9_RESPONSE_TIMEOUT_MS: 120000,
+  });
+
+  await executor.executeStep10({
+    panelMode: 'builtin-codex',
+    localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=builtin-state',
+    builtinCodexOAuthState: 'builtin-state',
+    builtinCodexCodeVerifier: 'verifier-123',
+  });
+
+  assert.equal(calls[0].type, 'exchange');
+  assert.equal(calls[0].code, 'callback-code');
+  assert.equal(calls[0].verifier, 'verifier-123');
+  assert.deepStrictEqual(calls[0].options, {
+    redirectUri: 'http://localhost:1455/auth/callback',
+    timeoutMs: 120000,
+  });
+  assert.equal(calls[1].type, 'build');
+  assert.equal(calls[2].type, 'download');
+  assert.deepStrictEqual(completed, [
+    {
+      step: 10,
+      payload: {
+        localhostUrl: 'http://localhost:1455/auth/callback?code=callback-code&state=builtin-state',
+        verifiedStatus: 'Codex 认证 JSON 已生成：flow@example.com',
+        builtinCodexAuthFileName: 'codex-flow@example.com-plus.json',
+      },
+    },
+  ]);
+  assert.ok(logs.some((entry) => /交换 Codex OAuth token/.test(entry.message)));
+  assert.ok(logs.some((entry) => /Codex 认证 JSON 已生成/.test(entry.message) && entry.level === 'ok'));
+});
+
 test('platform verify module supports codex2api protocol callback exchange', async () => {
   const source = fs.readFileSync('background/steps/platform-verify.js', 'utf8');
   const originalFetch = globalThis.fetch;
