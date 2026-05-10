@@ -440,6 +440,127 @@ return {
   assert.equal(api.run()?.kind, 'localized-email');
 });
 
+test('waitForSignupEntryState retries the signup entry click five times before giving up', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+let now = 0;
+
+const signupButton = {
+  textContent: '免费注册',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 120, height: 36 };
+  },
+};
+
+const document = {
+  querySelector() {
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [signupButton];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function throwIfStopped() {}
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+async function humanPause() {}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('findSignupEntryTrigger')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('waitForSignupEntryState')}
+
+return {
+  async run() {
+    return waitForSignupEntryState({ timeout: 30000, autoOpenEntry: true, step: 2 });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getLogs() {
+    return logs.slice();
+  },
+};
+`)();
+
+  const snapshot = await api.run();
+
+  assert.equal(snapshot.state, 'entry_home');
+  assert.equal(api.getClicks().length, 6);
+  assert.equal(api.getLogs().some(({ message }) => message.includes('重试 5/5')), true);
+  assert.equal(api.getLogs().some(({ message, level }) => level === 'warn' && /已完成 5 次重试/.test(message)), true);
+});
+
 test('ensureSignupPhoneEntryReady opens free signup before switching to the phone entry', async () => {
   const api = new Function(`
 const logs = [];
@@ -623,6 +744,137 @@ return {
     url: 'https://chatgpt.com/',
   });
   assert.deepEqual(api.getClicks(), ['免费注册', 'Continue with phone number']);
+});
+
+test('waitForSignupPhoneEntryState retries the signup entry click five times before giving up', async () => {
+  const api = new Function(`
+const logs = [];
+const clicks = [];
+let now = 0;
+
+const signupButton = {
+  textContent: '免费注册',
+  value: '',
+  disabled: false,
+  getAttribute(name) {
+    if (name === 'type') return 'button';
+    return '';
+  },
+  getBoundingClientRect() {
+    return { width: 120, height: 36 };
+  },
+};
+
+const document = {
+  querySelector() {
+    return null;
+  },
+  querySelectorAll(selector) {
+    if (selector === 'a, button, [role="button"], [role="link"]') {
+      return [signupButton];
+    }
+    return [];
+  },
+};
+
+const location = {
+  href: 'https://chatgpt.com/',
+};
+
+const Date = {
+  now() {
+    return now;
+  },
+};
+
+${extractConst('SIGNUP_ENTRY_TRIGGER_PATTERN')}
+${extractConst('SIGNUP_EMAIL_INPUT_SELECTOR')}
+${extractConst('SIGNUP_PHONE_INPUT_SELECTOR')}
+${extractConst('SIGNUP_SWITCH_TO_EMAIL_PATTERN')}
+${extractConst('SIGNUP_SWITCH_ACTION_PATTERN')}
+${extractConst('SIGNUP_EMAIL_ACTION_PATTERN')}
+${extractConst('SIGNUP_WORK_EMAIL_PATTERN')}
+${extractConst('SIGNUP_PHONE_ACTION_PATTERN')}
+${extractConst('SIGNUP_SWITCH_TO_PHONE_PATTERN')}
+${extractConst('SIGNUP_MORE_OPTIONS_PATTERN')}
+
+function isVisibleElement(el) {
+  return Boolean(el);
+}
+
+function isActionEnabled(el) {
+  return Boolean(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+}
+
+function getActionText(el) {
+  return [el?.textContent, el?.value, el?.getAttribute?.('aria-label'), el?.getAttribute?.('title')]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function getSignupPasswordInput() {
+  return null;
+}
+
+function isSignupPasswordPage() {
+  return false;
+}
+
+function getSignupPasswordSubmitButton() {
+  return null;
+}
+
+function getSignupPasswordDisplayedEmail() {
+  return '';
+}
+
+function throwIfStopped() {}
+
+function log(message, level = 'info') {
+  logs.push({ message, level });
+}
+
+function simulateClick(target) {
+  clicks.push(getActionText(target));
+}
+
+async function humanPause() {}
+
+async function sleep(ms) {
+  now += ms;
+}
+
+${extractFunction('getSignupEmailInput')}
+${extractFunction('getSignupPhoneInput')}
+${extractFunction('findSignupUseEmailTrigger')}
+${extractFunction('findSignupUsePhoneTrigger')}
+${extractFunction('findSignupMoreOptionsTrigger')}
+${extractFunction('getSignupEmailContinueButton')}
+${extractFunction('findSignupEntryTrigger')}
+${extractFunction('inspectSignupEntryState')}
+${extractFunction('waitForSignupPhoneEntryState')}
+
+return {
+  async run() {
+    return waitForSignupPhoneEntryState({ timeout: 30000, step: 2 });
+  },
+  getClicks() {
+    return clicks.slice();
+  },
+  getLogs() {
+    return logs.slice();
+  },
+};
+`)();
+
+  const snapshot = await api.run();
+
+  assert.equal(snapshot.state, 'entry_home');
+  assert.equal(api.getClicks().length, 6);
+  assert.equal(api.getLogs().some(({ message }) => message.includes('重试 5/5')), true);
+  assert.equal(api.getLogs().some(({ message, level }) => level === 'warn' && /已完成 5 次重试/.test(message)), true);
 });
 
 test('submitSignupPhoneNumberAndContinue auto-switches signup country before filling the local phone number', async () => {

@@ -2,7 +2,7 @@
   root.MultiPageBackgroundPlusCheckoutBilling = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundPlusCheckoutBillingModule() {
   const PLUS_CHECKOUT_SOURCE = 'plus-checkout';
-  const PLUS_CHECKOUT_INJECT_FILES = ['content/utils.js', 'content/plus-checkout.js'];
+  const PLUS_CHECKOUT_INJECT_FILES = ['content/utils.js', 'content/operation-delay.js', 'content/plus-checkout.js'];
   const PLUS_CHECKOUT_URL_PATTERN = /^https:\/\/chatgpt\.com\/checkout(?:\/|$)/i;
   const PLUS_CHECKOUT_FRAME_READY_DELAY_MS = 500;
   const PLUS_CHECKOUT_SUBMIT_MAX_ATTEMPTS = 3;
@@ -11,7 +11,28 @@
   const PLUS_PAYMENT_METHOD_GOPAY = 'gopay';
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
   const DEFAULT_GPC_HELPER_API_URL = 'https://gpc.qlhazycoder.top';
+  const GPC_HELPER_PHONE_MODE_AUTO = 'auto';
+  const GPC_HELPER_PHONE_MODE_MANUAL = 'manual';
   const GPC_TASK_POLL_INTERVAL_MS = 3000;
+  const GPC_TASK_STALE_STATUS_TIMEOUT_MS = 60000;
+  const GPC_REMOTE_STAGE_LABELS = {
+    auto_otp_wait: '等待自动 OTP',
+    checkout_order_start: '创建订单',
+    checkout_start: '创建订单',
+    completed: '充值完成',
+    gopay_validate_pin: '校验 PIN',
+    otp_ready: '等待 PIN',
+    otp_submitted_local: 'OTP 已提交',
+    payment_processing: '支付处理中',
+    pin_submitted_local: 'PIN 已提交',
+    sms_otp_wait: '等待短信 OTP',
+    whatsapp_otp_wait: '等待 WhatsApp OTP',
+  };
+  const GPC_WAITING_FOR_LABELS = {
+    auto_otp: '自动 OTP',
+    otp: 'OTP',
+    pin: 'PIN',
+  };
   const PAYMENT_METHOD_CONFIGS = {
     [PLUS_PAYMENT_METHOD_PAYPAL]: {
       id: PLUS_PAYMENT_METHOD_PAYPAL,
@@ -112,6 +133,56 @@
       return normalized === PLUS_PAYMENT_METHOD_GOPAY ? PLUS_PAYMENT_METHOD_GOPAY : PLUS_PAYMENT_METHOD_PAYPAL;
     }
 
+    function normalizeGpcHelperPhoneMode(value = '') {
+      const rootScope = typeof self !== 'undefined' ? self : globalThis;
+      if (rootScope.GoPayUtils?.normalizeGpcHelperPhoneMode) {
+        return rootScope.GoPayUtils.normalizeGpcHelperPhoneMode(value);
+      }
+      const normalized = String(value || '').trim().toLowerCase();
+      return normalized === GPC_HELPER_PHONE_MODE_AUTO || normalized === 'builtin'
+        ? GPC_HELPER_PHONE_MODE_AUTO
+        : GPC_HELPER_PHONE_MODE_MANUAL;
+    }
+
+    function formatGpcRemoteStageLabel(stage = '') {
+      const normalized = String(stage || '').trim().toLowerCase();
+      if (!normalized) {
+        return '';
+      }
+      return GPC_REMOTE_STAGE_LABELS[normalized] || normalized;
+    }
+
+    function formatGpcWaitingForLabel(waitingFor = '') {
+      const normalized = String(waitingFor || '').trim().toLowerCase();
+      if (!normalized) {
+        return '';
+      }
+      return GPC_WAITING_FOR_LABELS[normalized] || normalized.toUpperCase();
+    }
+
+    function formatGpcTaskStatusLog(task = {}) {
+      const statusText = String(task?.status_text || task?.statusText || '').trim();
+      const status = String(task?.status || '').trim();
+      const remoteStage = String(task?.remote_stage || task?.remoteStage || '').trim();
+      const stageText = formatGpcRemoteStageLabel(remoteStage);
+      const waitingForText = formatGpcWaitingForLabel(task?.api_waiting_for || task?.apiWaitingFor || '');
+      const mainText = stageText || statusText || status || '处理中';
+      const parts = [`步骤 7：GPC 任务状态：${mainText}`];
+      if (waitingForText && !mainText.includes(waitingForText)) {
+        parts.push(`，等待 ${waitingForText}`);
+      }
+      return parts.join('');
+    }
+
+    function getGpcHelperPhoneMode(state = {}, task = null) {
+      return normalizeGpcHelperPhoneMode(
+        task?.phone_mode
+        || task?.phoneMode
+        || state?.gopayHelperPhoneMode
+        || state?.phoneMode
+      );
+    }
+
     function getPaymentMethodConfig(method = PLUS_PAYMENT_METHOD_PAYPAL) {
       return PAYMENT_METHOD_CONFIGS[normalizePlusPaymentMethod(method)] || PAYMENT_METHOD_CONFIGS[PLUS_PAYMENT_METHOD_PAYPAL];
     }
@@ -139,11 +210,34 @@
         throw new Error('当前运行环境不支持 fetch，无法调用 GPC API。');
       }
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 30000)) : null;
+      const effectiveTimeoutMs = Math.max(1000, Number(timeoutMs) || 30000);
+      let didTimeout = false;
+      let timer = null;
+      const buildTimeoutError = () => new Error(`GPC API 请求超时（>${Math.round(effectiveTimeoutMs / 1000)} 秒）：${url}`);
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          didTimeout = true;
+          reject(buildTimeoutError());
+          if (controller) {
+            controller.abort();
+          }
+        }, effectiveTimeoutMs);
+      });
       try {
-        const response = await fetcher(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
-        const data = await response.json().catch(() => ({}));
+        const response = await Promise.race([
+          fetcher(url, { ...options, ...(controller ? { signal: controller.signal } : {}) }),
+          timeoutPromise,
+        ]);
+        const data = await Promise.race([
+          response.json().catch(() => ({})),
+          timeoutPromise,
+        ]);
         return { response, data };
+      } catch (error) {
+        if (didTimeout || error?.name === 'AbortError') {
+          throw buildTimeoutError();
+        }
+        throw error;
       } finally {
         if (timer) clearTimeout(timer);
       }
@@ -299,7 +393,7 @@
       task.task_id = String(task.task_id || task.taskId || '').trim();
       task.status = String(task.status || '').trim().toLowerCase();
       task.status_text = String(task.status_text || task.statusText || '').trim();
-      task.phone_mode = String(task.phone_mode || task.phoneMode || '').trim().toLowerCase();
+      task.phone_mode = normalizeGpcHelperPhoneMode(task.phone_mode || task.phoneMode || '');
       task.remote_stage = String(task.remote_stage || task.remoteStage || '').trim().toLowerCase();
       task.api_waiting_for = String(task.api_waiting_for || task.apiWaitingFor || '').trim().toLowerCase();
       task.api_input_deadline_at = String(task.api_input_deadline_at || task.apiInputDeadlineAt || '').trim();
@@ -318,6 +412,7 @@
         gopayHelperTaskId: task.task_id,
         gopayHelperTaskStatus: task.status,
         gopayHelperStatusText: task.status_text,
+        gopayHelperPhoneMode: task.phone_mode,
         gopayHelperRemoteStage: task.remote_stage,
         gopayHelperApiWaitingFor: task.api_waiting_for,
         gopayHelperApiInputDeadlineAt: task.api_input_deadline_at,
@@ -675,17 +770,64 @@
       });
     }
 
-    function isGpcTaskOtpWait(task = {}) {
-      return task?.phone_mode === 'manual' && task?.api_waiting_for === 'otp';
+    function isGpcTaskManualMode(task = {}, state = {}) {
+      return getGpcHelperPhoneMode(state, task) === GPC_HELPER_PHONE_MODE_MANUAL;
     }
 
-    function isGpcTaskPinWait(task = {}) {
-      return task?.phone_mode === 'manual'
+    function isGpcTaskOtpWait(task = {}, state = {}) {
+      return isGpcTaskManualMode(task, state) && task?.api_waiting_for === 'otp';
+    }
+
+    function isGpcTaskPinWait(task = {}, state = {}) {
+      return isGpcTaskManualMode(task, state)
         && (task?.api_waiting_for === 'pin' || task?.status === 'otp_ready');
     }
 
     function isGpcTaskTerminal(status = '') {
       return ['completed', 'failed', 'expired', 'discarded'].includes(String(status || '').trim().toLowerCase());
+    }
+
+    function buildGpcTaskProgressSignature(task = {}) {
+      return [
+        task?.status,
+        task?.status_text,
+        task?.remote_stage,
+        task?.api_waiting_for,
+        task?.last_input_error,
+        task?.otp_invalid_count,
+        task?.reference_id || task?.referenceId,
+        task?.redirect_url || task?.redirectUrl,
+        task?.flow_id || task?.flowId,
+        task?.challenge_id || task?.challengeId,
+        task?.gopay_guid || task?.gopayGuid,
+      ].map((value) => String(value ?? '').trim()).join('|');
+    }
+
+    function shouldWatchGpcTaskProgress(task = {}, state = {}) {
+      if (!task || isGpcTaskTerminal(task.status)) {
+        return false;
+      }
+      if (isGpcTaskOtpWait(task, state) || isGpcTaskPinWait(task, state)) {
+        return false;
+      }
+      return true;
+    }
+
+    function getGpcTaskStaleStatusTimeoutMs(state = {}) {
+      const configuredSeconds = Number(state?.gopayHelperTaskStaleSeconds);
+      if (Number.isFinite(configuredSeconds) && configuredSeconds > 0) {
+        return Math.max(15000, Math.min(600000, Math.floor(configuredSeconds * 1000)));
+      }
+      return GPC_TASK_STALE_STATUS_TIMEOUT_MS;
+    }
+
+    function buildGpcTaskStaleStatusError(task = {}, staleTimeoutMs = GPC_TASK_STALE_STATUS_TIMEOUT_MS) {
+      const seconds = Math.max(1, Math.round(staleTimeoutMs / 1000));
+      const label = formatGpcRemoteStageLabel(task?.remote_stage)
+        || task?.status_text
+        || task?.status
+        || '未知状态';
+      return new Error(`GPC_TASK_ENDED::GPC 任务状态超过 ${seconds} 秒无进展（${label}），请重新创建任务。`);
     }
 
     function buildGpcTaskTerminalError(task = {}) {
@@ -829,6 +971,9 @@
       let lastSubmittedOtp = '';
       let pinSubmitted = false;
       let terminalReached = false;
+      let lastProgressSignature = '';
+      let lastProgressAt = Date.now();
+      const staleStatusTimeoutMs = getGpcTaskStaleStatusTimeoutMs(state);
 
       if (!taskId) {
         throw new Error('步骤 7：GPC 模式缺少 task_id，请先执行步骤 6。');
@@ -840,27 +985,25 @@
         throw new Error('步骤 7：GPC 模式缺少 API Key。');
       }
 
+      const configuredPhoneMode = normalizeGpcHelperPhoneMode(state?.gopayHelperPhoneMode || state?.phoneMode || GPC_HELPER_PHONE_MODE_MANUAL);
       const rawPin = String(state?.gopayHelperPin || '').trim();
       const pinDigits = rawPin.replace(/[^\d]/g, '');
       const pin = normalizeSixDigitPin(rawPin);
-      if (!pin) {
+      if (configuredPhoneMode === GPC_HELPER_PHONE_MODE_MANUAL && !pin) {
         if (taskId && apiUrl && apiKey) {
           await stopGpcTaskBestEffort(apiUrl, taskId, apiKey, 'PIN 配置错误');
         }
         throw new Error(pinDigits
           ? '步骤 7：GPC PIN 必须是 6 位数字，请检查侧边栏配置。'
-          : '步骤 7：GPC 模式缺少 PIN 配置。');
+          : '步骤 7：GPC 手动模式缺少 PIN 配置。');
       }
 
-      await addLog(`步骤 7：GPC 模式开始轮询任务（task_id: ${taskId}）...`, 'info');
+      await addLog(`步骤 7：GPC ${configuredPhoneMode === GPC_HELPER_PHONE_MODE_AUTO ? '自动' : '手动'}模式开始轮询任务（task_id: ${taskId}）...`, 'info');
       try {
         while (Date.now() <= deadline) {
           throwIfStopped();
           const task = await fetchGpcTaskStatus(apiUrl, taskId, apiKey);
-          const statusText = task?.status_text || task?.status || '处理中';
-          const remoteStage = task?.remote_stage || '';
-          const waitingFor = task?.api_waiting_for || '';
-          await addLog(`步骤 7：GPC 任务状态：${statusText}${remoteStage ? `（${remoteStage}）` : ''}${waitingFor ? `，等待 ${waitingFor.toUpperCase()}` : ''}`, 'info');
+          await addLog(formatGpcTaskStatusLog(task), 'info');
 
           if (task.status === 'completed') {
             terminalReached = true;
@@ -879,7 +1022,21 @@
             throw buildGpcTaskEndedError(task, 'GPC 任务已结束，请重新创建任务。');
           }
 
-          if (isGpcTaskOtpWait(task)) {
+          if (shouldWatchGpcTaskProgress(task, state)) {
+            const progressSignature = buildGpcTaskProgressSignature(task);
+            const now = Date.now();
+            if (progressSignature && progressSignature !== lastProgressSignature) {
+              lastProgressSignature = progressSignature;
+              lastProgressAt = now;
+            } else if (progressSignature && now - lastProgressAt >= staleStatusTimeoutMs) {
+              throw buildGpcTaskStaleStatusError(task, staleStatusTimeoutMs);
+            }
+          } else {
+            lastProgressSignature = '';
+            lastProgressAt = Date.now();
+          }
+
+          if (isGpcTaskOtpWait(task, state)) {
             if (isGpcTaskInputDeadlineExpired(task)) {
               throw buildGpcInputDeadlineError(task, 'OTP');
             }
@@ -940,7 +1097,7 @@
             otpLastSubmittedAt = Date.now();
             lastSubmittedOtp = normalizedOtp;
             await addLog('步骤 7：OTP 已提交，继续等待 GPC 任务状态更新。', 'ok');
-          } else if (isGpcTaskPinWait(task) && !pinSubmitted) {
+          } else if (isGpcTaskPinWait(task, state) && !pinSubmitted) {
             if (isGpcTaskInputDeadlineExpired(task)) {
               throw buildGpcInputDeadlineError(task, 'PIN');
             }

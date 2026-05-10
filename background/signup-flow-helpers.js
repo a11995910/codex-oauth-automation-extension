@@ -30,11 +30,34 @@
       waitForTabUrlMatch,
     } = deps;
 
+    async function waitForSignupEntryTabToSettle(tabId, step = 1) {
+      if (step !== 2 || !Number.isInteger(tabId) || typeof waitForTabStableComplete !== 'function') {
+        return null;
+      }
+
+      if (typeof addLog === 'function') {
+        await addLog(
+          `步骤 ${step}：注册页已打开，正在等待页面加载完成并额外稳定 3 秒...`,
+          'info',
+          { step, stepKey: 'signup-entry' }
+        );
+      }
+
+      return waitForTabStableComplete(tabId, {
+        timeoutMs: 45000,
+        retryDelayMs: 300,
+        stableMs: 3000,
+        initialDelayMs: 300,
+      });
+    }
+
     async function openSignupEntryTab(step = 1) {
       const tabId = await reuseOrCreateTab('signup-page', SIGNUP_ENTRY_URL, {
         inject: SIGNUP_PAGE_INJECT_FILES,
         injectSource: 'signup-page',
       });
+
+      await waitForSignupEntryTabToSettle(tabId, step);
 
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
         inject: SIGNUP_PAGE_INJECT_FILES,
@@ -85,7 +108,7 @@
     function fallbackSignupProfilePageUrl(rawUrl) {
       const parsed = parseUrlSafely(rawUrl);
       if (!parsed) return false;
-      return /\/create-account\/profile(?:[/?#]|$)/i.test(parsed.pathname || '');
+      return /\/(?:create-account\/profile|u\/signup\/profile|signup\/profile)(?:[/?#]|$)/i.test(parsed.pathname || '');
     }
 
     function resolveSignupPostIdentityState(rawUrl) {

@@ -13,6 +13,7 @@
       isConsentReady,
       isPhoneVerificationPageReady,
       isVisibleElement,
+      performOperationWithDelay: injectedPerformOperationWithDelay,
       simulateClick,
       sleep,
       throwIfStopped,
@@ -20,6 +21,7 @@
     } = deps;
     const PHONE_RESEND_THROTTLED_ERROR_PREFIX = 'PHONE_RESEND_THROTTLED::';
     const PHONE_RESEND_BANNED_NUMBER_ERROR_PREFIX = 'PHONE_RESEND_BANNED_NUMBER::';
+    const PHONE_RESEND_SERVER_ERROR_PREFIX = 'PHONE_RESEND_SERVER_ERROR::';
     const PHONE_MAX_USAGE_EXCEEDED_PATTERN = /phone_max_usage_exceeded/i;
     const PHONE_ROUTE_405_RECOVERY_FAILED_ERROR_PREFIX = 'PHONE_ROUTE_405_RECOVERY_FAILED::';
     const PHONE_ROUTE_405_RECOVERY_COOLDOWN_MS = 6000;
@@ -27,12 +29,18 @@
     const PHONE_RESEND_ROUTE_405_MAX_RECOVERY_TOTAL_MS = 12000;
     const PHONE_RESEND_THROTTLED_PATTERN = /tried\s+to\s+resend\s+too\s+many\s+times|please\s+try\s+again\s+later|too\s+many\s+resend|resend\s+too\s+many|发送.*过于频繁|稍后再试|重试次数过多/i;
     const PHONE_RESEND_BANNED_NUMBER_PATTERN = /无法向此电话号码发送短信|无法向此手机号发送短信|无法发送短信到此电话号码|无法发送短信到此手机号|can(?:not|'t)\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number|unable\s+to\s+send\s+(?:an?\s+)?(?:sms|text(?:\s+message)?)\s+to\s+(?:this|that)\s+(?:phone\s+)?number/i;
+    const PHONE_RESEND_SERVER_ERROR_PATTERN = /this\s+page\s+isn['’]?t\s+working|currently\s+unable\s+to\s+handle\s+this\s+request|http\s+error\s+500|500\s+internal\s+server\s+error/i;
     const PHONE_ROUTE_405_PATTERN = /405\s+method\s+not\s+allowed|route\s+error.*405|did\s+not\s+provide\s+an?\s+[`'"]?action|post\s+request\s+to\s+["']?\/phone-verification/i;
     const PHONE_ROUTE_405_MAX_RECOVERY_CLICKS = 3;
     const rootScope = typeof self !== 'undefined' ? self : globalThis;
     const phoneCountryUtils = rootScope?.MultiPagePhoneCountryUtils || globalThis?.MultiPagePhoneCountryUtils || {};
     let lastPhoneRoute405RecoveryFailedAt = 0;
     let activePhoneResendPromise = null;
+
+    async function performOperationWithDelay(metadata, operation) {
+      const gate = injectedPerformOperationWithDelay || rootScope?.CodexOperationDelay?.performOperationWithDelay;
+      return typeof gate === 'function' ? gate(metadata, operation) : operation();
+    }
 
     function dispatchInputEvents(element) {
       if (!element) return;
@@ -334,10 +342,15 @@
       }
       const selectedOption = getSelectedCountryOption();
       if (selectedOption && isSameCountryOption(selectedOption, targetOption)) {
+        await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'select', label: 'phone-country-select' }, async () => {
+          dispatchInputEvents(select);
+        });
         return true;
       }
-      select.value = String(targetOption.value || '');
-      dispatchInputEvents(select);
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'select', label: 'phone-country-select' }, async () => {
+        select.value = String(targetOption.value || '');
+        dispatchInputEvents(select);
+      });
       await sleep(250);
       const nextSelectedOption = getSelectedCountryOption();
       return Boolean(nextSelectedOption && isSameCountryOption(nextSelectedOption, targetOption));
@@ -392,6 +405,33 @@
       }) || buttons.find((button) => isVisibleElement(button));
     }
 
+    function getPhoneVerificationResendActionText(button) {
+      if (!button) return '';
+      return [
+        button.getAttribute?.('value'),
+        button.getAttribute?.('aria-label'),
+        button.getAttribute?.('title'),
+        getActionText(button),
+        button.textContent,
+      ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function isWhatsAppResendText(value) {
+      return /whats\s*app/i.test(String(value || ''));
+    }
+
+    function getPhoneVerificationResendActionInfo(button) {
+      const text = getPhoneVerificationResendActionText(button);
+      const channel = isWhatsAppResendText(text)
+        ? 'whatsapp'
+        : (/(?:sms|text\s+message|短信)/i.test(text) ? 'sms' : '');
+      return {
+        channel,
+        channelText: text,
+        text,
+      };
+    }
+
     function getPhoneVerificationResendButton(options = {}) {
       const { allowDisabled = false } = options;
       const form = getPhoneVerificationForm();
@@ -402,7 +442,7 @@
         if (!allowDisabled && !isActionEnabled(button)) return false;
         const intent = String(button.getAttribute('value') || '').trim().toLowerCase();
         if (intent === 'resend') return true;
-        return /resend/i.test(getActionText(button));
+        return /resend|重新发送|再次发送|whats\s*app/i.test(getPhoneVerificationResendActionText(button));
       }) || null;
     }
 
@@ -512,6 +552,20 @@
       return '';
     }
 
+    function getPhoneResendServerErrorText() {
+      const path = String(location?.pathname || '');
+      if (!/\/contact-verification(?:[/?#]|$)/i.test(path)) {
+        return '';
+      }
+      const text = String(getPageTextSnapshot?.() || '').replace(/\s+/g, ' ').trim();
+      const title = String(document?.title || '').replace(/\s+/g, ' ').trim();
+      const combined = `${title} ${text}`.trim();
+      if (!PHONE_RESEND_SERVER_ERROR_PATTERN.test(combined)) {
+        return '';
+      }
+      return combined || 'OpenAI contact-verification page returned HTTP ERROR 500 after resend.';
+    }
+
     function checkPhoneResendError() {
       const maxUsageText = getAddPhoneErrorText();
       if (maxUsageText && PHONE_MAX_USAGE_EXCEEDED_PATTERN.test(maxUsageText)) {
@@ -541,6 +595,17 @@
           reason: 'resend_throttled',
           prefix: PHONE_RESEND_THROTTLED_ERROR_PREFIX,
           message: throttledText,
+          url: location.href,
+        };
+      }
+
+      const serverErrorText = getPhoneResendServerErrorText();
+      if (serverErrorText) {
+        return {
+          hasError: true,
+          reason: 'resend_server_error',
+          prefix: PHONE_RESEND_SERVER_ERROR_PREFIX,
+          message: serverErrorText,
           url: location.href,
         };
       }
@@ -616,7 +681,9 @@
           }
           clicked += 1;
           await humanPause(200, 500);
-          simulateClick(retryButton);
+          await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'click', label: 'phone-route-retry' }, async () => {
+            simulateClick(retryButton);
+          });
           await sleep(1000);
           continue;
         }
@@ -715,13 +782,19 @@
       }
 
       await humanPause(250, 700);
-      fillInput(phoneInput, nationalPhoneNumber);
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'fill', label: 'phone-number' }, async () => {
+        fillInput(phoneInput, nationalPhoneNumber);
+      });
       if (hiddenPhoneNumberInput) {
-        hiddenPhoneNumberInput.value = phoneNumber;
-        dispatchInputEvents(hiddenPhoneNumberInput);
+        await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'hidden-sync', label: 'phone-number-hidden-sync' }, async () => {
+          hiddenPhoneNumberInput.value = phoneNumber;
+          dispatchInputEvents(hiddenPhoneNumberInput);
+        });
       }
       await sleep(250);
-      simulateClick(submitButton);
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'submit', label: 'phone-number-submit' }, async () => {
+        simulateClick(submitButton);
+      });
       return waitForPhoneVerificationReady();
     }
 
@@ -797,16 +870,20 @@
       }
 
       await humanPause(250, 700);
-      fillInput(codeInput, code);
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'fill', label: 'phone-verification-code' }, async () => {
+        fillInput(codeInput, code);
+      });
       await sleep(250);
-      simulateClick(submitButton);
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'submit', label: 'phone-verification-submit' }, async () => {
+        simulateClick(submitButton);
+      });
       if (is405MethodNotAllowedPage()) {
         await recoverPhoneRoute405(12000);
       }
       return waitForPhoneVerificationOutcome();
     }
 
-    async function resendPhoneVerificationCode(timeout = 45000) {
+    async function resendPhoneVerificationCode(timeout = 45000, options = {}) {
       if (activePhoneResendPromise) {
         return activePhoneResendPromise;
       }
@@ -847,10 +924,36 @@
           if (throttledText) {
             throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${throttledText}`);
           }
+          const serverErrorText = getPhoneResendServerErrorText();
+          if (serverErrorText) {
+            throw new Error(`${PHONE_RESEND_SERVER_ERROR_PREFIX}${serverErrorText}`);
+          }
           const resendButton = getPhoneVerificationResendButton({ allowDisabled: true });
           if (resendButton && isActionEnabled(resendButton)) {
+            const resendInfo = getPhoneVerificationResendActionInfo(resendButton);
+            if (resendInfo.channel === 'whatsapp') {
+              return {
+                resent: false,
+                channel: 'whatsapp',
+                channelText: resendInfo.channelText,
+                text: resendInfo.text,
+                url: location.href,
+              };
+            }
+            if (options?.probeOnly) {
+              return {
+                resent: false,
+                probed: true,
+                channel: resendInfo.channel || 'unknown',
+                channelText: resendInfo.channelText,
+                text: resendInfo.text,
+                url: location.href,
+              };
+            }
             await humanPause(250, 700);
-            simulateClick(resendButton);
+            await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'click', label: 'phone-verification-resend' }, async () => {
+              simulateClick(resendButton);
+            });
             await sleep(1000);
             if (is405MethodNotAllowedPage()) {
               await recoverRoute405WithinResend();
@@ -864,8 +967,15 @@
             if (afterClickThrottleText) {
               throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${afterClickThrottleText}`);
             }
+            const afterClickServerErrorText = getPhoneResendServerErrorText();
+            if (afterClickServerErrorText) {
+              throw new Error(`${PHONE_RESEND_SERVER_ERROR_PREFIX}${afterClickServerErrorText}`);
+            }
             return {
               resent: true,
+              channel: resendInfo.channel || 'sms',
+              channelText: resendInfo.channelText,
+              text: resendInfo.text,
               url: location.href,
             };
           }
@@ -880,6 +990,11 @@
         const timeoutThrottleText = getPhoneResendThrottleText();
         if (timeoutThrottleText) {
           throw new Error(`${PHONE_RESEND_THROTTLED_ERROR_PREFIX}${timeoutThrottleText}`);
+        }
+
+        const timeoutServerErrorText = getPhoneResendServerErrorText();
+        if (timeoutServerErrorText) {
+          throw new Error(`${PHONE_RESEND_SERVER_ERROR_PREFIX}${timeoutServerErrorText}`);
         }
 
         throw new Error('Timed out waiting for the phone verification resend button.');
@@ -902,7 +1017,9 @@
         throw new Error('The auth page is not currently on phone verification or add-phone page.');
       }
 
-      location.assign('/add-phone');
+      await performOperationWithDelay({ stepKey: 'phone-auth', kind: 'navigation', label: 'phone-return-add-phone' }, async () => {
+        location.assign('/add-phone');
+      });
       await waitForAddPhoneReady(timeout);
       return {
         addPhonePage: true,

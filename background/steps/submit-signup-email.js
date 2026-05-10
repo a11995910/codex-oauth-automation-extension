@@ -18,6 +18,7 @@
       resolveSignupEmailForFlow,
       sendToContentScriptResilient,
       SIGNUP_PAGE_INJECT_FILES,
+      waitForTabStableComplete = null,
     } = deps;
 
     function getErrorMessage(error) {
@@ -165,6 +166,25 @@
       }
     }
 
+    async function waitForStep2SignupTabToSettle(tabId, logMessage) {
+      if (!Number.isInteger(tabId) || typeof waitForTabStableComplete !== 'function') {
+        return null;
+      }
+
+      await addLog(
+        logMessage || '步骤 2：注册页标签已切换，正在等待页面加载完成并额外稳定 3 秒...',
+        'info',
+        { step: 2, stepKey: 'signup-entry' }
+      );
+
+      return waitForTabStableComplete(tabId, {
+        timeoutMs: 45000,
+        retryDelayMs: 300,
+        stableMs: 3000,
+        initialDelayMs: 300,
+      });
+    }
+
     async function ensureSignupPhoneEntryReady(tabId) {
       if (!Number.isInteger(tabId)) {
         throw new Error('步骤 2：未找到可用的注册页标签，无法切换到手机号注册入口。');
@@ -210,6 +230,10 @@
         signupTabId = (await ensureSignupEntryPageReady(2)).tabId;
       } else {
         await chrome.tabs.update(signupTabId, { active: true });
+        await waitForStep2SignupTabToSettle(
+          signupTabId,
+          '步骤 2：已切换到注册页标签，正在等待页面加载完成并额外稳定 3 秒...'
+        );
         await ensureContentScriptReadyOnTab('signup-page', signupTabId, {
           inject: SIGNUP_PAGE_INJECT_FILES,
           injectSource: 'signup-page',

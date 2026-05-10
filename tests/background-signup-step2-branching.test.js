@@ -428,6 +428,85 @@ test('step 2 does not force auth-entry retry on logged-out chatgpt home when con
   assert.equal(logs.some((item) => /已登录 ChatGPT 首页/.test(item.message)), false);
 });
 
+test('step 2 waits for the existing signup tab to settle before probing the entry state', async () => {
+  const completedPayloads = [];
+  const logs = [];
+  const events = [];
+
+  const executor = step2Api.createStep2Executor({
+    addLog: async (message, level = 'info', meta = {}) => {
+      logs.push({ message, level, meta });
+    },
+    chrome: {
+      tabs: {
+        update: async () => {
+          events.push('tab-update');
+        },
+        get: async () => ({ url: 'https://chatgpt.com/' }),
+      },
+    },
+    completeStepFromBackground: async (step, payload) => {
+      completedPayloads.push({ step, payload });
+    },
+    ensureContentScriptReadyOnTab: async () => {
+      events.push('content-ready');
+    },
+    ensureSignupAuthEntryPageReady: async () => ({ tabId: 17 }),
+    ensureSignupEntryPageReady: async () => ({ tabId: 17 }),
+    ensureSignupPostEmailPageReadyInTab: async () => ({
+      state: 'password_page',
+      url: 'https://auth.openai.com/create-account/password',
+    }),
+    getTabId: async () => 17,
+    isTabAlive: async () => true,
+    resolveSignupEmailForFlow: async () => 'user@example.com',
+    sendToContentScriptResilient: async (_source, message) => {
+      events.push(message.type);
+      if (message.type === 'ENSURE_SIGNUP_ENTRY_READY') {
+        return { ready: true, state: 'entry_home', url: 'https://chatgpt.com/' };
+      }
+      return { submitted: true };
+    },
+    SIGNUP_PAGE_INJECT_FILES: [],
+    waitForTabStableComplete: async (_tabId, options) => {
+      events.push({ type: 'wait-stable', options });
+      return { id: 17, url: 'https://chatgpt.com/', status: 'complete' };
+    },
+  });
+
+  await executor.executeStep2({ email: 'user@example.com' });
+
+  assert.deepStrictEqual(events.slice(0, 4), [
+    'tab-update',
+    {
+      type: 'wait-stable',
+      options: {
+        timeoutMs: 45000,
+        retryDelayMs: 300,
+        stableMs: 3000,
+        initialDelayMs: 300,
+      },
+    },
+    'content-ready',
+    'ENSURE_SIGNUP_ENTRY_READY',
+  ]);
+  assert.equal(logs.some((item) => /额外稳定 3 秒/.test(item.message)), true);
+  assert.equal(logs.some((item) => item.meta.step === 2 && item.meta.stepKey === 'signup-entry'), true);
+  assert.deepStrictEqual(completedPayloads, [
+    {
+      step: 2,
+      payload: {
+        email: 'user@example.com',
+        accountIdentifierType: 'email',
+        accountIdentifier: 'user@example.com',
+        nextSignupState: 'password_page',
+        nextSignupUrl: 'https://auth.openai.com/create-account/password',
+        skippedPasswordStep: false,
+      },
+    },
+  ]);
+});
+
 test('signup flow helper recognizes email verification page as post-email landing page', async () => {
   let ensureCalls = 0;
   let passwordReadyChecks = 0;
@@ -475,6 +554,71 @@ test('signup flow helper recognizes email verification page as post-email landin
   });
   assert.equal(ensureCalls, 1);
   assert.equal(passwordReadyChecks, 0);
+});
+
+test('signup flow helper waits for the signup entry tab to settle for step 2 before probing the entry page', async () => {
+  const logs = [];
+  const events = [];
+
+  const helpers = signupFlowApi.createSignupFlowHelpers({
+    addLog: async (message, level = 'info', meta = {}) => {
+      logs.push({ message, level, meta });
+    },
+    buildGeneratedAliasEmail: () => '',
+    ensureContentScriptReadyOnTab: async () => {
+      events.push('content-ready');
+    },
+    ensureHotmailAccountForFlow: async () => ({}),
+    ensureLuckmailPurchaseForFlow: async () => ({}),
+    isGeneratedAliasProvider: () => false,
+    isHotmailProvider: () => false,
+    isLuckmailProvider: () => false,
+    isSignupEmailVerificationPageUrl: () => false,
+    isSignupPasswordPageUrl: () => false,
+    reuseOrCreateTab: async () => {
+      events.push('reuse-or-create');
+      return 23;
+    },
+    sendToContentScriptResilient: async () => {
+      events.push('probe-entry');
+      return { ready: true, state: 'entry_home', url: 'https://chatgpt.com/' };
+    },
+    setEmailState: async () => {},
+    SIGNUP_ENTRY_URL: 'https://chatgpt.com/',
+    SIGNUP_PAGE_INJECT_FILES: [],
+    waitForTabStableComplete: async (_tabId, options) => {
+      events.push({ type: 'wait-stable', options });
+      return { id: 23, url: 'https://chatgpt.com/', status: 'complete' };
+    },
+    waitForTabUrlMatch: async () => null,
+  });
+
+  const result = await helpers.ensureSignupEntryPageReady(2);
+
+  assert.deepStrictEqual(events, [
+    'reuse-or-create',
+    {
+      type: 'wait-stable',
+      options: {
+        timeoutMs: 45000,
+        retryDelayMs: 300,
+        stableMs: 3000,
+        initialDelayMs: 300,
+      },
+    },
+    'content-ready',
+    'probe-entry',
+  ]);
+  assert.equal(logs.some((item) => /额外稳定 3 秒/.test(item.message)), true);
+  assert.equal(logs.some((item) => item.meta.step === 2 && item.meta.stepKey === 'signup-entry'), true);
+  assert.deepStrictEqual(result, {
+    tabId: 23,
+    result: {
+      ready: true,
+      state: 'entry_home',
+      url: 'https://chatgpt.com/',
+    },
+  });
 });
 
 test('signup flow helper accepts phone signup landing on login password page', async () => {

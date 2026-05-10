@@ -85,6 +85,7 @@ function createExecutorHarness({
   markCurrentRegistrationAccountUsed = async () => {},
   probeIpProxyExit = null,
   onSetState = null,
+  sleepWithStop = null,
   submitRedirectUrl = 'https://www.paypal.com/checkoutnow',
 }) {
   const api = loadPlusCheckoutBillingModule();
@@ -166,7 +167,7 @@ function createExecutorHarness({
         await onSetState(updates, events);
       }
     },
-    sleepWithStop: async (ms) => events.sleeps.push(ms),
+    sleepWithStop: sleepWithStop || (async (ms) => events.sleeps.push(ms)),
     waitForTabCompleteUntilStopped: async () => checkoutTab,
     waitForTabUrlMatchUntilStopped: async (tabId, matcher) => {
       events.waitedUrls.push({ tabId });
@@ -903,9 +904,181 @@ test('GPC billing polls queue task, submits WhatsApp OTP then PIN, and waits unt
   assert.equal(pinCall.options.headers['X-API-Key'], 'gpc_billing_123');
   assert.ok(fetchCalls.findIndex((call) => call.url.endsWith('/api/gp/tasks/task_123/pin')) < fetchCalls.length - 1);
   assert.equal(events.states.some((state) => state.gopayHelperTaskId === 'task_123' && state.gopayHelperTaskStatus === 'completed'), true);
+  assert.equal(events.logs.some((entry) => entry.message === '步骤 7：GPC 任务状态：等待 WhatsApp OTP'), true);
+  assert.equal(events.logs.some((entry) => /whatsapp_otp_wait/.test(entry.message)), false);
   assert.equal(events.completed[0].step, 7);
   assert.equal(events.completed[0].payload.plusCheckoutSource, 'gpc-helper');
   assert.ok(events.sleeps.includes(3000));
+});
+
+
+test('GPC billing auto mode only polls until completed without OTP or PIN submission', async () => {
+  const fetchCalls = [];
+  let pollCount = 0;
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_auto') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_auto', phone_mode: 'auto', status: 'queued', status_text: '排队中', api_waiting_for: '' }),
+          };
+        }
+        if (pollCount === 2) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({ task_id: 'task_auto', phone_mode: 'auto', status: 'active', status_text: '处理中', remote_stage: 'auto_otp_wait', api_waiting_for: 'auto_otp' }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({ task_id: 'task_auto', phone_mode: 'auto', status: 'completed', status_text: '充值完成', remote_stage: 'completed', api_waiting_for: '' }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await executor.executePlusCheckoutBilling({
+    plusPaymentMethod: 'gpc-helper',
+    plusCheckoutSource: 'gpc-helper',
+    gopayHelperTaskId: 'task_auto',
+    gopayHelperPhoneMode: 'auto',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiKey: 'gpc_auto',
+  });
+
+  assert.equal(fetchCalls.length, 3);
+  assert.equal(fetchCalls.some((call) => /\/api\/gp\/tasks\/task_auto\/(otp|pin)$/.test(call.url)), false);
+  assert.equal(events.logs.some((entry) => entry.message === '步骤 7：GPC 任务状态：等待自动 OTP'), true);
+  assert.equal(events.logs.some((entry) => /auto_otp_wait/.test(entry.message)), false);
+  assert.equal(events.states.some((state) => state.plusManualConfirmationMethod === 'gopay-otp'), false);
+  assert.equal(events.states.some((state) => state.gopayHelperTaskId === 'task_auto' && state.gopayHelperPhoneMode === 'auto' && state.gopayHelperTaskStatus === 'completed'), true);
+  assert.equal(events.completed[0].step, 7);
+  assert.equal(events.completed[0].payload.plusCheckoutSource, 'gpc-helper');
+});
+
+test('GPC billing logs checkout order stage in Chinese', async () => {
+  let pollCount = 0;
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    fetchImpl: async (url) => {
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_stage') {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => createGpcTaskResponse({
+              task_id: 'task_stage',
+              phone_mode: 'auto',
+              status: 'active',
+              status_text: '处理中',
+              remote_stage: 'checkout_order_start',
+              api_waiting_for: '',
+            }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({
+            task_id: 'task_stage',
+            phone_mode: 'auto',
+            status: 'completed',
+            status_text: '充值完成',
+            remote_stage: 'completed',
+            api_waiting_for: '',
+          }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  await executor.executePlusCheckoutBilling({
+    plusPaymentMethod: 'gpc-helper',
+    plusCheckoutSource: 'gpc-helper',
+    gopayHelperTaskId: 'task_stage',
+    gopayHelperPhoneMode: 'auto',
+    gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+    gopayHelperApiKey: 'gpc_auto',
+  });
+
+  assert.equal(events.logs.some((entry) => entry.message === '步骤 7：GPC 任务状态：创建订单'), true);
+  assert.equal(events.logs.some((entry) => /checkout_order_start/.test(entry.message)), false);
+});
+
+test('GPC billing fails repeated checkout stage as stale so auto-run can recreate task', async () => {
+  const originalNow = Date.now;
+  let now = 1710000000000;
+  const fetchCalls = [];
+  const { events, executor } = createExecutorHarness({
+    frames: [],
+    stateByFrame: {},
+    sleepWithStop: async (ms) => {
+      events.sleeps.push(ms);
+      now += ms;
+    },
+    fetchImpl: async (url, options = {}) => {
+      fetchCalls.push({ url, options });
+      if (url === 'https://gpc.qlhazycoder.top/api/gp/tasks/task_stale') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({
+            task_id: 'task_stale',
+            phone_mode: 'auto',
+            status: 'active',
+            status_text: '处理中',
+            remote_stage: 'checkout_order_start',
+            api_waiting_for: '',
+          }),
+        };
+      }
+      if (url.endsWith('/api/gp/tasks/task_stale/stop')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => createGpcTaskResponse({
+            task_id: 'task_stale',
+            status: 'discarded',
+            status_text: '已停止',
+          }),
+        };
+      }
+      throw new Error(`unexpected url: ${url}`);
+    },
+  });
+
+  Date.now = () => now;
+  try {
+    await assert.rejects(
+      () => executor.executePlusCheckoutBilling({
+        plusPaymentMethod: 'gpc-helper',
+        plusCheckoutSource: 'gpc-helper',
+        gopayHelperTaskId: 'task_stale',
+        gopayHelperPhoneMode: 'auto',
+        gopayHelperApiUrl: 'https://gpc.qlhazycoder.top/',
+        gopayHelperApiKey: 'gpc_auto',
+        gopayHelperTaskStaleSeconds: 15,
+      }),
+      /GPC_TASK_ENDED::GPC 任务状态超过 15 秒无进展（创建订单），请重新创建任务。/
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+
+  assert.equal(fetchCalls.some((call) => call.url.endsWith('/api/gp/tasks/task_stale/stop')), true);
+  assert.equal(events.logs.some((entry) => entry.message === '步骤 7：GPC 任务状态：创建订单'), true);
 });
 
 test('GPC billing reads SMS OTP from local helper for sms_otp_wait', async () => {

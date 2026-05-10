@@ -27,6 +27,7 @@
         'hotmail-api': 'Hotmail（API对接/本地助手）',
         'luckmail-api': 'LuckMail（API 购邮）',
         'cloudflare-temp-email': 'Cloudflare Temp Email',
+        'cloudmail': 'Cloud Mail',
       };
       return labels[source] || source || '未知来源';
     }

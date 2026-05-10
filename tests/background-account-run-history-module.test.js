@@ -198,6 +198,54 @@ test('account run history helper accepts phone-only records without forcing emai
   assert.equal(normalized.finalStatus, 'failed');
 });
 
+test('account run history does not turn prerequisite guidance into a fake step 2 failure', () => {
+  const source = fs.readFileSync('background/account-run-history.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundAccountRunHistory;`)(globalScope);
+
+  const helpers = api.createAccountRunHistoryHelpers({
+    chrome: { storage: { local: { get: async () => ({}), set: async () => {} } } },
+    getState: async () => ({}),
+    normalizeAccountRunHistoryHelperBaseUrl: (value) => String(value || '').trim(),
+  });
+
+  const genericFailedRecord = helpers.buildAccountRunHistoryRecord({
+    email: 'late@example.com',
+    password: 'secret',
+    autoRunning: true,
+    autoRunCurrentRun: 1,
+    autoRunTotalRuns: 3,
+    autoRunAttemptRun: 2,
+  }, 'failed', '缺少登录账号：请先完成步骤 2，或在侧栏填写账号后再执行当前步骤。');
+
+  assert.equal(genericFailedRecord.failedStep, null);
+  assert.equal(genericFailedRecord.failureLabel, '流程失败');
+
+  const explicitFailedRecord = helpers.buildAccountRunHistoryRecord({
+    email: 'late@example.com',
+    password: 'secret',
+    autoRunning: true,
+    autoRunCurrentRun: 1,
+    autoRunTotalRuns: 3,
+    autoRunAttemptRun: 2,
+  }, 'step10_failed', '缺少登录账号：请先完成步骤 2，或在侧栏填写账号后再执行当前步骤。');
+
+  assert.equal(explicitFailedRecord.failedStep, 10);
+  assert.equal(explicitFailedRecord.failureLabel, '步骤 10 失败');
+
+  const migratedOldRecord = helpers.normalizeAccountRunHistoryRecord({
+    email: 'old@example.com',
+    password: 'secret',
+    finalStatus: 'failed',
+    failureLabel: '步骤 2 失败',
+    failureDetail: '缺少登录账号：请先完成步骤 2，或在侧栏填写账号后再执行当前步骤。',
+    failedStep: 2,
+  });
+
+  assert.equal(migratedOldRecord.failedStep, null);
+  assert.equal(migratedOldRecord.failureLabel, '流程失败');
+});
+
 test('account run history merges email and phone identities from the same run', async () => {
   const source = fs.readFileSync('background/account-run-history.js', 'utf8');
   const globalScope = {};

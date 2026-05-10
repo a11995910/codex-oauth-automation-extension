@@ -55,6 +55,7 @@ test('background account history settings are normalized independently from hotm
     extractFunction('normalizeAccountRunHistoryHelperBaseUrl'),
     extractFunction('normalizeVerificationResendCount'),
     extractFunction('normalizePlusPaymentMethod'),
+    extractFunction('normalizeGpcHelperPhoneMode'),
     extractFunction('normalizePhoneSmsProvider'),
     extractFunction('normalizePhoneSmsProviderOrder'),
     extractFunction('normalizeSignupMethod'),
@@ -211,6 +212,12 @@ return {
   );
   assert.equal(api.normalizePersistentSettingValue('gopayHelperApiUrl', ''), 'https://gpc.qlhazycoder.top');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperApiKey', ' gpc-123 '), 'gpc-123');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneMode', 'auto'), 'auto');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneMode', 'builtin'), 'auto');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneMode', 'unknown'), 'manual');
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperRemainingUses', '998'), 998);
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperAutoModeEnabled', 1), true);
+  assert.equal(api.normalizePersistentSettingValue('gopayHelperApiKeyStatus', ' active '), 'active');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperCountryCode', ' 86 '), '+86');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPhoneNumber', ' +86 138-0013-8000 '), '+8613800138000');
   assert.equal(api.normalizePersistentSettingValue('gopayHelperPin', ' 12-34-56 '), '123456');

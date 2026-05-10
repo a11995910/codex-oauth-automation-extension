@@ -58,6 +58,10 @@ gh auth login
 10. 如果是前端改动且没有新增依赖，只提醒开发者自己测试即可；如果新增了依赖并完成安装，可以自行验证能否启动，验证后要关闭启动占用的端口，并提醒开发者重新启动。
 11. PR 标题、PR 正文、PR 评论都用自然中文直接表达，不要写“自动回复”“AI 分析结果如下”这种固定机器人腔。
 12. 没有开发者明确授权时，AI 不得擅自合并 PR、关闭 PR、删除远端分支。
+13. 必须严格区分“同步 PR 分支”和“合并 PR 到 `dev`”：
+    - `git merge origin/dev`、`git rebase origin/dev`、把最新 `dev` 推回 PR 源分支，只是让 PR 分支吸收最新基线，不等于合并 PR。
+    - 只有通过 GitHub PR 合并动作，例如 `gh pr merge <PR_NUMBER> --merge`，并确认 `origin/dev` 已前进到合并提交，才算“合并到 `dev`”。
+14. 如果开发者明确说“合并进 dev”“合到 dev”“通过就合”“没问题就合并”“处理完直接合并”这类表达，AI 必须执行阶段 8 的真实 PR 合并流程；不能只更新 PR 分支后声称已经合并。
 
 ## 开发者需要提供给 AI 的信息
 
@@ -308,6 +312,30 @@ git log --oneline HEAD..origin/dev
 gh pr merge <PR_NUMBER> --merge --delete-branch
 ```
 
+注意：
+
+1. 这一步才是“把 PR 合并到 `dev`”。把 `origin/dev` 合并到功能分支、把功能分支推回 PR、让 PR 变成可合并，都不算已经合并到 `dev`。
+2. 如果不打算删除 PR 源分支，可以去掉 `--delete-branch`，但仍然必须执行 `gh pr merge`。
+3. `gh pr merge` 成功后，必须立刻验证 PR 和本地 `dev`：
+
+```powershell
+gh pr view <PR_NUMBER> --json number,state,mergedAt,mergedBy,baseRefName,url,mergeCommit
+git fetch origin
+git switch dev
+git pull --ff-only origin dev
+git rev-parse HEAD origin/dev
+git log --oneline -1
+```
+
+验证要求：
+
+1. `state` 必须是 `MERGED`。
+2. `baseRefName` 必须是 `dev`。
+3. `mergeCommit.oid` 必须存在。
+4. `git rev-parse HEAD origin/dev` 输出的两个提交必须一致。
+5. 本地 `dev` 的最新提交必须是该 PR 的合并提交，或包含该 PR 合并结果的后续 `dev` 提交。
+6. 如果本地有无关脏改动导致不能切回或快进 `dev`，必须明确告诉开发者“远端 PR 已合并，但本地 `dev` 尚未更新”，不能说本地也已经完成。
+
 限制：
 
 1. AI 只能把自己的 PR 合并到 `dev`。
@@ -352,6 +380,7 @@ gh pr merge <PR_NUMBER> --merge --delete-branch
 - PR 标题和正文与真实改动一致
 - 如有评论，内容为自然中文，不用固定机器人模板
 - 如果未跑测试，已明确提醒开发者测试
+- 如果开发者授权合并，已确认 PR 状态为 `MERGED`，且本地 `dev` 与 `origin/dev` 指向同一提交
 
 ## 最终反馈给开发者时必须说明
 
@@ -366,6 +395,7 @@ AI 完成后，至少要向开发者明确反馈下面这些信息：
 7. 是否改了 SQL 并同步了本地数据库
 8. 是否运行过测试；如果没跑，要明确提醒开发者自行测试
 9. 是否已经合并；如果已合并，要明确说明是合并到 `dev`
+10. 如果已合并，必须说明 PR 状态是否为 `MERGED`、合并提交是什么、本地 `dev` 和 `origin/dev` 是否已经一致
 
 ## 一句话执行要求
 

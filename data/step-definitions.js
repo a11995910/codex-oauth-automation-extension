@@ -58,7 +58,7 @@
     { id: 4, order: 40, key: 'fetch-signup-code', title: '获取注册验证码' },
     { id: 5, order: 50, key: 'fill-profile', title: '填写姓名和生日' },
     { id: 6, order: 60, key: 'plus-checkout-create', title: '创建 GPC 订单' },
-    { id: 7, order: 70, key: 'plus-checkout-billing', title: 'GPC OTP/PIN 验证' },
+    { id: 7, order: 70, key: 'plus-checkout-billing', title: '等待 GPC 任务完成' },
     { id: 10, order: 100, key: 'oauth-login', title: '刷新 OAuth 并登录' },
     { id: 11, order: 110, key: 'fetch-login-code', title: '获取登录验证码' },
     { id: 12, order: 120, key: 'confirm-oauth', title: '自动确认 OAuth' },

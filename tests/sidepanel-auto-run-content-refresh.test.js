@@ -113,6 +113,9 @@ async function refreshContributionContentHint() {
   events.push({ type: 'refresh' });
   ${refreshImpl ? 'return (' + refreshImpl + ')();' : 'return null;'}
 }
+async function ensureGpcApiKeyReadyForStart() {
+  return true;
+}
 ${bundle}
 return {
   startAutoRunFromCurrentSettings,

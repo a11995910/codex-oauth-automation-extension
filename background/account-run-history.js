@@ -39,7 +39,7 @@
       return '';
     }
 
-    function extractRecordStep(status = '', detail = '') {
+    function extractRecordStepFromStatus(status = '') {
       const normalizedStatus = String(status || '').trim().toLowerCase();
       const statusMatch = normalizedStatus.match(/^step(\d+)_(?:failed|stopped)$/);
       if (statusMatch) {
@@ -47,6 +47,21 @@
         return Number.isInteger(step) && step > 0 ? step : null;
       }
 
+      return null;
+    }
+
+    function extractRecordStepFromDetailPrefix(detail = '') {
+      const text = String(detail || '').trim();
+      const detailMatch = text.match(/^(?:Step\s+(\d+)|步骤\s*(\d+))\s*(?::|：|失败|停止|已|\b)/i);
+      if (!detailMatch) {
+        return null;
+      }
+
+      const step = Number(detailMatch[1] || detailMatch[2]);
+      return Number.isInteger(step) && step > 0 ? step : null;
+    }
+
+    function extractAnyRecordStepFromDetail(detail = '') {
       const text = String(detail || '').trim();
       const detailMatch = text.match(/(?:Step\s+(\d+)|步骤\s*(\d+))/i);
       if (!detailMatch) {
@@ -55,6 +70,76 @@
 
       const step = Number(detailMatch[1] || detailMatch[2]);
       return Number.isInteger(step) && step > 0 ? step : null;
+    }
+
+    function extractRecordStep(status = '', detail = '') {
+      return extractRecordStepFromStatus(status) || extractRecordStepFromDetailPrefix(detail);
+    }
+
+    function parseFailureLabelStep(label = '') {
+      const match = String(label || '').trim().match(/^步骤\s*(\d+)\s*(?:失败|停止)$/);
+      if (!match) {
+        return null;
+      }
+      const step = Number(match[1]);
+      return Number.isInteger(step) && step > 0 ? step : null;
+    }
+
+    function shouldIgnorePersistedFailedStepCandidate(candidate, failureDetail = '') {
+      if (!Number.isInteger(candidate) || candidate <= 0) {
+        return true;
+      }
+
+      const text = String(failureDetail || '').trim();
+      if (!text) {
+        return false;
+      }
+
+      const leadingStep = extractRecordStepFromDetailPrefix(text);
+      if (Number.isInteger(leadingStep) && leadingStep > 0) {
+        return leadingStep !== candidate;
+      }
+
+      const incidentalStep = extractAnyRecordStepFromDetail(text);
+      return incidentalStep === candidate;
+    }
+
+    function resolveNormalizedFailedStep(record = {}, failureDetail = '') {
+      const explicitStatusStep = extractRecordStepFromStatus(record.finalStatus || record.status || '');
+      if (Number.isInteger(explicitStatusStep) && explicitStatusStep > 0) {
+        return explicitStatusStep;
+      }
+
+      const detailStep = extractRecordStepFromDetailPrefix(failureDetail);
+      if (Number.isInteger(detailStep) && detailStep > 0) {
+        return detailStep;
+      }
+
+      const failedStepCandidate = Number(record.failedStep);
+      if (Number.isInteger(failedStepCandidate)
+        && failedStepCandidate > 0
+        && !shouldIgnorePersistedFailedStepCandidate(failedStepCandidate, failureDetail)) {
+        return failedStepCandidate;
+      }
+
+      return null;
+    }
+
+    function resolveFailureLabel(finalStatus, rawFailureLabel = '', computedFailureLabel = '', failedStep = null) {
+      const rawLabel = String(rawFailureLabel || '').trim();
+      if (finalStatus === 'stopped') {
+        return computedFailureLabel;
+      }
+      if (finalStatus !== 'failed') {
+        return rawLabel || computedFailureLabel;
+      }
+
+      const rawStep = parseFailureLabelStep(rawLabel);
+      if (Number.isInteger(rawStep) && rawStep > 0) {
+        return rawStep === failedStep ? rawLabel : computedFailureLabel;
+      }
+
+      return rawLabel || computedFailureLabel;
     }
 
     function isPhoneVerificationFailure(detail = '') {
@@ -247,10 +332,9 @@
       const failureDetail = finalStatus === 'failed' || finalStatus === 'stopped'
         ? String(record.failureDetail || record.reason || '').trim()
         : '';
-      const failedStepCandidate = Number(record.failedStep);
-      const failedStep = Number.isInteger(failedStepCandidate) && failedStepCandidate > 0
-        ? failedStepCandidate
-        : extractRecordStep(record.finalStatus || record.status || '', failureDetail);
+      const failedStep = finalStatus === 'failed' || finalStatus === 'stopped'
+        ? resolveNormalizedFailedStep(record, failureDetail)
+        : null;
       const autoRunContext = normalizeAutoRunContext(record.autoRunContext);
       const retryCount = normalizeRetryCount(
         record.retryCount !== undefined
@@ -271,9 +355,7 @@
         finalStatus,
         finishedAt,
         retryCount,
-        failureLabel: finalStatus === 'stopped'
-          ? computedFailureLabel
-          : (rawFailureLabel || computedFailureLabel),
+        failureLabel: resolveFailureLabel(finalStatus, rawFailureLabel, computedFailureLabel, failedStep),
         failureDetail,
         failedStep: Number.isInteger(failedStep) && failedStep > 0 ? failedStep : null,
         source,

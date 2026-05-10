@@ -111,7 +111,7 @@ test('step definitions module exposes ordered normal and Plus step metadata', ()
   assert.deepStrictEqual(api.getStepIds({ plusModeEnabled: true, plusPaymentMethod: 'gpc-helper' }), [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13]);
   assert.equal(api.getLastStepId({ plusModeEnabled: true, plusPaymentMethod: 'gpc-helper' }), 13);
   assert.equal(gpcSteps[5].title, '创建 GPC 订单');
-  assert.equal(gpcSteps[6].title, 'GPC OTP/PIN 验证');
+  assert.equal(gpcSteps[6].title, '等待 GPC 任务完成');
 });
 
 test('sidepanel html loads shared step definitions before sidepanel bootstrap', () => {
@@ -142,6 +142,9 @@ test('sidepanel html exposes Plus mode, PayPal, and GoPay settings', () => {
   assert.match(html, />转换 API Key</);
   assert.match(html, /GPC API Key/);
   assert.match(html, /id="input-gpc-helper-card-key"/);
+  assert.match(html, /GPC 模式/);
+  assert.match(html, /id="select-gpc-helper-phone-mode"/);
+  assert.match(html, /<option value="auto">自动模式<\/option>/);
   assert.match(html, /id="btn-gpc-helper-balance"/);
   assert.match(html, /id="input-gpc-helper-phone"/);
   assert.match(html, /id="select-gpc-helper-otp-channel"/);

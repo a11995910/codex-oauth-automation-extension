@@ -6,6 +6,14 @@ console.log('[MultiPage:signup-page] Content script loaded on', location.href);
 
 const SIGNUP_PAGE_LISTENER_SENTINEL = 'data-multipage-signup-page-listener';
 
+function getOperationDelayRunner() {
+  const rootScope = typeof window !== 'undefined' ? window : globalThis;
+  const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+  return typeof gate === 'function'
+    ? gate
+    : async (_metadata, operation) => operation();
+}
+
 if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1') {
   document.documentElement.setAttribute(SIGNUP_PAGE_LISTENER_SENTINEL, '1');
 
@@ -97,7 +105,7 @@ async function handleCommand(message) {
       }
       return await submitPhoneVerificationCodeWithProfileFallback(message.payload);
     case 'RESEND_PHONE_VERIFICATION_CODE':
-      return await phoneAuthHelpers.resendPhoneVerificationCode();
+      return await phoneAuthHelpers.resendPhoneVerificationCode(undefined, message.payload || {});
     case 'CHECK_PHONE_RESEND_ERROR':
       return phoneAuthHelpers.checkPhoneResendError();
     case 'RETURN_TO_ADD_PHONE':
@@ -147,6 +155,8 @@ const LOGIN_EXTERNAL_IDP_PATTERN = /google|microsoft|apple|sso|single\s+sign[-\s
 const LOGIN_CODE_ONLY_ACTION_PATTERN = /one[-\s]*time|passcode|use\s+(?:a\s+)?code|验证码|一次性/i;
 
 const RESEND_VERIFICATION_CODE_PATTERN = /重新发送(?:验证码)?|再次发送(?:验证码)?|重发(?:验证码)?|未收到(?:验证码|邮件)|resend(?:\s+code)?|send\s+(?:a\s+)?new\s+code|send\s+(?:it\s+)?again|request\s+(?:a\s+)?new\s+code|didn'?t\s+receive/i;
+const PHONE_RESEND_SERVER_ERROR_PREFIX = 'PHONE_RESEND_SERVER_ERROR::';
+const CONTACT_VERIFICATION_SERVER_ERROR_PATTERN = /this\s+page\s+isn['’]?t\s+working|currently\s+unable\s+to\s+handle\s+this\s+request|http\s+error\s+500|500\s+internal\s+server\s+error/i;
 
 function isVisibleElement(el) {
   if (!el) return false;
@@ -250,7 +260,35 @@ function isEmailVerificationPage() {
   return /\/email-verification(?:[/?#]|$)/i.test(location.pathname || '');
 }
 
+function getContactVerificationServerErrorText() {
+  const path = String(location?.pathname || '');
+  if (!/\/contact-verification(?:[/?#]|$)/i.test(path)) {
+    return '';
+  }
+  const text = String(getPageTextSnapshot?.() || document?.body?.textContent || '').replace(/\s+/g, ' ').trim();
+  const title = String(document?.title || '').replace(/\s+/g, ' ').trim();
+  const combined = `${title} ${text}`.trim();
+  if (!CONTACT_VERIFICATION_SERVER_ERROR_PATTERN.test(combined)) {
+    return '';
+  }
+  return combined || 'OpenAI contact-verification page returned HTTP ERROR 500 after resend.';
+}
+
+function throwIfContactVerificationServerError() {
+  const serverErrorText = getContactVerificationServerErrorText();
+  if (serverErrorText) {
+    throw new Error(`${PHONE_RESEND_SERVER_ERROR_PREFIX}${serverErrorText}`);
+  }
+}
+
 async function resendVerificationCode(step, timeout = 45000) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   if (step === 8) {
     await waitForLoginVerificationPageReady(10000, step);
   }
@@ -261,6 +299,7 @@ async function resendVerificationCode(step, timeout = 45000) {
 
   while (Date.now() - start < timeout) {
     throwIfStopped();
+    throwIfContactVerificationServerError();
 
     // Check for 405 error page and recover by clicking "Try again"
     if (is405MethodNotAllowedPage()) {
@@ -275,7 +314,9 @@ async function resendVerificationCode(step, timeout = 45000) {
     if (action && isActionEnabled(action)) {
       log(`步骤 ${step}：重新发送验证码按钮已可用。`);
       await humanPause(350, 900);
-      simulateClick(action);
+      await performOperationWithDelay({ stepKey: step === 8 ? 'oauth-login' : 'fetch-signup-code', kind: 'click', label: 'resend-verification-code' }, async () => {
+        simulateClick(action);
+      });
       await sleep(1200);
 
       // After clicking resend, check if 405 error appeared
@@ -285,6 +326,7 @@ async function resendVerificationCode(step, timeout = 45000) {
         loggedWaiting = false;
         continue;
       }
+      throwIfContactVerificationServerError();
 
       return {
         resent: true,
@@ -300,6 +342,7 @@ async function resendVerificationCode(step, timeout = 45000) {
     await sleep(250);
   }
 
+  throwIfContactVerificationServerError();
   throw new Error('无法点击重新发送验证码按钮。URL: ' + location.href);
 }
 
@@ -955,6 +998,13 @@ function logSignupPasswordDiagnostics(context, level = 'warn') {
 }
 
 async function waitForSignupEntryState(options = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const {
     timeout = 15000,
     autoOpenEntry = false,
@@ -962,6 +1012,8 @@ async function waitForSignupEntryState(options = {}) {
     logDiagnostics = false,
   } = options;
   const start = Date.now();
+  const maxSignupEntryClickRetries = 5;
+  const maxSignupEntryClickAttempts = maxSignupEntryClickRetries + 1;
   let lastTriggerClickAt = 0;
   let clickAttempts = 0;
   let lastState = '';
@@ -995,7 +1047,9 @@ async function waitForSignupEntryState(options = {}) {
         }
         log('步骤 2：检测到手机号输入模式，正在切换到邮箱输入模式...');
         await humanPause(350, 900);
-        simulateClick(snapshot.switchToEmailTrigger);
+        await performOperationWithDelay({ stepKey: 'signup-entry', kind: 'click', label: 'switch-to-signup-email' }, async () => {
+          simulateClick(snapshot.switchToEmailTrigger);
+        });
       } else if (!snapshot.switchToEmailTrigger && !loggedMissingSwitchToEmail) {
         loggedMissingSwitchToEmail = true;
         log('步骤 2：检测到手机号输入模式，但暂未识别到“改用邮箱/继续使用电子邮件地址登录”按钮，继续等待界面稳定...', 'warn');
@@ -1016,14 +1070,25 @@ async function waitForSignupEntryState(options = {}) {
       }
 
       if (Date.now() - lastTriggerClickAt >= 1500) {
+        if (clickAttempts >= maxSignupEntryClickAttempts) {
+          log(`步骤 ${step}：官网注册入口已完成 ${maxSignupEntryClickRetries} 次重试，页面仍未进入邮箱输入页，停止重试。`, 'warn');
+          return snapshot;
+        }
         lastTriggerClickAt = Date.now();
         clickAttempts += 1;
+        const retryAttempt = clickAttempts - 1;
         if (logDiagnostics) {
-          log(`步骤 ${step}：正在点击官网注册入口（第 ${clickAttempts} 次）："${getActionText(snapshot.signupTrigger).slice(0, 80)}"`);
+          log(`步骤 ${step}：正在点击官网注册入口（第 ${clickAttempts}/${maxSignupEntryClickAttempts} 次）："${getActionText(snapshot.signupTrigger).slice(0, 80)}"`);
         }
-        log('步骤 2：正在点击官网注册入口...');
+        log(retryAttempt > 0
+          ? `步骤 ${step}：上次点击后仍未进入邮箱输入页，等待 3 秒后重试点击官网注册入口（重试 ${retryAttempt}/${maxSignupEntryClickRetries}）...`
+          : `步骤 ${step}：已找到官网注册入口，等待 3 秒后点击...`);
+        await sleep(3000);
+        throwIfStopped();
         await humanPause(350, 900);
-        simulateClick(snapshot.signupTrigger);
+        await performOperationWithDelay({ stepKey: 'signup-entry', kind: 'click', label: 'open-signup-entry' }, async () => {
+          simulateClick(snapshot.signupTrigger);
+        });
       }
     }
 
@@ -1093,6 +1158,13 @@ async function ensureSignupPasswordPageReady(timeout = 20000) {
 }
 
 async function fillSignupEmailAndContinue(email, step) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   if (!email) throw new Error(`未提供邮箱地址，步骤 ${step} 无法继续。`);
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
@@ -1123,7 +1195,9 @@ async function fillSignupEmailAndContinue(email, step) {
 
   log(`步骤 ${step}：正在填写邮箱：${email}`);
   await humanPause(500, 1400);
-  fillInput(snapshot.emailInput, email);
+  await performOperationWithDelay({ stepKey: step === 2 ? 'signup-entry' : 'fill-password', kind: 'fill', label: 'signup-email' }, async () => {
+    fillInput(snapshot.emailInput, email);
+  });
   log(`步骤 ${step}：邮箱已填写`);
 
   const continueButton = snapshot.continueButton || getSignupEmailContinueButton({ allowDisabled: true });
@@ -1132,10 +1206,12 @@ async function fillSignupEmailAndContinue(email, step) {
   }
 
   log(`步骤 ${step}：邮箱已准备提交，正在前往密码页...`);
-  window.setTimeout(() => {
+  window.setTimeout(async () => {
     try {
       throwIfStopped();
-      simulateClick(continueButton);
+      await performOperationWithDelay({ stepKey: step === 2 ? 'signup-entry' : 'fill-password', kind: 'submit', label: 'submit-signup-email' }, async () => {
+        simulateClick(continueButton);
+      });
     } catch (error) {
       if (!isStopError(error)) {
         console.error('[MultiPage:signup-page] deferred signup email submit failed:', error?.message || error);
@@ -1655,6 +1731,13 @@ function findSignupPhoneCountryOptionByPhoneNumber(phoneInput, phoneNumber) {
 }
 
 async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInput = getSignupPhoneInput(), options = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   if (!select || !targetOption) {
     return false;
   }
@@ -1662,12 +1745,16 @@ async function trySelectSignupPhoneCountryOption(select, targetOption, phoneInpu
     ? (select.options?.[select.selectedIndex] || null)
     : null;
   if (selectedOption && isSameSignupCountryOption(selectedOption, targetOption)) {
-    dispatchSignupPhoneFieldEvents(select);
+    await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-select' }, async () => {
+      dispatchSignupPhoneFieldEvents(select);
+    });
     await sleep(120);
     return isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options);
   }
-  select.value = String(targetOption.value || '');
-  dispatchSignupPhoneFieldEvents(select);
+  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-select' }, async () => {
+    select.value = String(targetOption.value || '');
+    dispatchSignupPhoneFieldEvents(select);
+  });
   await sleep(250);
   return isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options);
 }
@@ -1722,6 +1809,13 @@ function findSignupPhoneCountryListboxOption(targetOption, options = {}) {
 }
 
 async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption, options = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const button = getSignupPhoneCountryButton(phoneInput);
   if (!button) {
     return false;
@@ -1802,7 +1896,9 @@ async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption
     return scrolled;
   };
 
-  simulateClick(button);
+  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'open-signup-phone-country-listbox' }, async () => {
+    simulateClick(button);
+  });
   await sleep(200);
   resetListboxScroll();
 
@@ -1812,7 +1908,9 @@ async function trySelectSignupPhoneCountryListboxOption(phoneInput, targetOption
     throwIfStopped();
     const option = findSignupPhoneCountryListboxOption(targetOption, options);
     if (option) {
-      simulateClick(option);
+      await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'select', label: 'signup-phone-country-listbox-option' }, async () => {
+        simulateClick(option);
+      });
       await sleep(450);
       if (isSignupPhoneCountrySelectionSynced(phoneInput, targetOption, options)) {
         return true;
@@ -2108,6 +2206,13 @@ function getLoginPhoneInputCandidateDiagnostics(limit = 12) {
 }
 
 async function fillLoginPhoneInputAndConfirm(phoneInput, options = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const {
     phoneNumber = '',
     dialCode = '',
@@ -2132,7 +2237,9 @@ async function fillLoginPhoneInputAndConfirm(phoneInput, options = {}) {
     const fillCandidates = getLoginPhoneFillCandidates(phoneNumber, dialCode, currentInput);
     for (const attemptedValue of fillCandidates) {
       currentInput.focus?.();
-      fillInput(currentInput, attemptedValue);
+      await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'fill', label: 'login-phone-number' }, async () => {
+        fillInput(currentInput, attemptedValue);
+      });
       lastVerification = await waitForPhoneInputValue(currentInput, inputValue, {
         resolvePhoneInput,
         phoneNumber,
@@ -2142,7 +2249,9 @@ async function fillLoginPhoneInputAndConfirm(phoneInput, options = {}) {
       });
       if (lastVerification.ok) {
         const verifiedInput = lastVerification.input || currentInput;
-        const hiddenSync = syncPhoneHiddenFormValue(verifiedInput, { phoneNumber, dialCode, inputValue });
+        const hiddenSync = await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'hidden-sync', label: 'login-phone-hidden-sync' }, async () => (
+          syncPhoneHiddenFormValue(verifiedInput, { phoneNumber, dialCode, inputValue })
+        ));
         const expectedHiddenDigits = normalizePhoneDigits(phoneNumber) || `${normalizePhoneDigits(dialCode)}${normalizePhoneDigits(inputValue)}`;
         if (hiddenSync && expectedHiddenDigits && normalizePhoneDigits(hiddenSync.value) !== expectedHiddenDigits) {
           throw new Error(`\u6b65\u9aa4 ${visibleStep}\uff1a\u624b\u673a\u53f7\u9690\u85cf\u63d0\u4ea4\u5b57\u6bb5\u540c\u6b65\u5931\u8d25\uff0c\u671f\u671b ${expectedHiddenDigits}\uff0c\u5b9e\u9645 ${normalizePhoneDigits(hiddenSync.value) || '\u7a7a'}\u3002`);
@@ -2198,12 +2307,22 @@ function resolveSignupPhoneDialCode(phoneInput, options = {}) {
 }
 
 async function waitForSignupPhoneEntryState(options = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const {
     timeout = 20000,
     step = 2,
   } = options;
   const start = Date.now();
+  const maxSignupEntryClickRetries = 5;
+  const maxSignupEntryClickAttempts = maxSignupEntryClickRetries + 1;
   let lastTriggerClickAt = 0;
+  let clickAttempts = 0;
   let lastSwitchToPhoneAt = 0;
   let lastMoreOptionsClickAt = 0;
   let slowSnapshotLogged = false;
@@ -2226,14 +2345,18 @@ async function waitForSignupPhoneEntryState(options = {}) {
         lastSwitchToPhoneAt = Date.now();
         log(`步骤 ${step}：检测到邮箱输入模式，正在切换到手机号注册入口...`);
         await humanPause(350, 900);
-        simulateClick(switchToPhone);
+        await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'switch-to-signup-phone' }, async () => {
+          simulateClick(switchToPhone);
+        });
       } else {
         const moreOptionsTrigger = findSignupMoreOptionsTrigger();
         if (moreOptionsTrigger && Date.now() - lastMoreOptionsClickAt >= 1500) {
           lastMoreOptionsClickAt = Date.now();
           log(`步骤 ${step}：手机号入口可能隐藏在更多选项中，正在展开更多选项...`);
           await humanPause(350, 900);
-          simulateClick(moreOptionsTrigger);
+          await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'signup-phone-more-options' }, async () => {
+            simulateClick(moreOptionsTrigger);
+          });
         } else if (!switchToPhone && !slowSnapshotLogged && Date.now() - start >= 5000) {
           slowSnapshotLogged = true;
           log(`步骤 ${step}：尚未找到手机号入口，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
@@ -2245,10 +2368,22 @@ async function waitForSignupPhoneEntryState(options = {}) {
 
     if (snapshot.state === 'entry_home' && snapshot.signupTrigger) {
       if (Date.now() - lastTriggerClickAt >= 1500) {
+        if (clickAttempts >= maxSignupEntryClickAttempts) {
+          log(`步骤 ${step}：官网注册入口已完成 ${maxSignupEntryClickRetries} 次重试，页面仍未进入手机号输入页，停止重试。`, 'warn');
+          return snapshot;
+        }
         lastTriggerClickAt = Date.now();
-        log(`步骤 ${step}：正在点击官网注册入口...`);
+        clickAttempts += 1;
+        const retryAttempt = clickAttempts - 1;
+        log(retryAttempt > 0
+          ? `步骤 ${step}：上次点击后仍未进入手机号输入页，等待 3 秒后重试点击官网注册入口（重试 ${retryAttempt}/${maxSignupEntryClickRetries}）...`
+          : `步骤 ${step}：已找到官网注册入口，等待 3 秒后点击...`);
+        await sleep(3000);
+        throwIfStopped();
         await humanPause(350, 900);
-        simulateClick(snapshot.signupTrigger);
+        await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'click', label: 'open-signup-entry' }, async () => {
+          simulateClick(snapshot.signupTrigger);
+        });
       }
       await sleep(250);
       continue;
@@ -2268,6 +2403,13 @@ async function waitForSignupPhoneEntryState(options = {}) {
 }
 
 async function submitSignupPhoneNumberAndContinue(payload = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const phoneNumber = String(payload.phoneNumber || '').trim();
   const countryLabel = String(payload.countryLabel || '').trim();
   if (!phoneNumber) {
@@ -2312,11 +2454,15 @@ async function submitSignupPhoneNumberAndContinue(payload = {}) {
 
   log(`步骤 2：正在填写手机号：${phoneNumber}`);
   await humanPause(500, 1400);
-  fillInput(snapshot.phoneInput, inputValue);
+  await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'fill', label: 'signup-phone-number' }, async () => {
+    fillInput(snapshot.phoneInput, inputValue);
+  });
   const hiddenPhoneNumberInput = getSignupPhoneHiddenNumberInput(snapshot.phoneInput);
   const e164PhoneNumber = toE164PhoneNumber(phoneNumber, dialCode);
   if (hiddenPhoneNumberInput && e164PhoneNumber) {
-    fillInput(hiddenPhoneNumberInput, e164PhoneNumber);
+    await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'hidden-sync', label: 'signup-phone-hidden-sync' }, async () => {
+      fillInput(hiddenPhoneNumberInput, e164PhoneNumber);
+    });
   }
   log(`步骤 2：手机号已填写：${phoneNumber}${dialCode ? `（区号 +${dialCode}，本地号 ${inputValue}）` : ''}`);
 
@@ -2326,10 +2472,12 @@ async function submitSignupPhoneNumberAndContinue(payload = {}) {
   }
 
   log('步骤 2：手机号已准备提交，正在前往下一页...');
-  window.setTimeout(() => {
+  window.setTimeout(async () => {
     try {
       throwIfStopped();
-      simulateClick(continueButton);
+      await performOperationWithDelay({ stepKey: 'signup-phone-entry', kind: 'submit', label: 'submit-signup-phone' }, async () => {
+        simulateClick(continueButton);
+      });
     } catch (error) {
       if (!isStopError(error)) {
         console.error('[MultiPage:signup-page] deferred signup phone submit failed:', error?.message || error);
@@ -2363,6 +2511,13 @@ async function step2_clickRegister(payload = {}) {
 // ============================================================
 
 async function step3_fillEmailPassword(payload) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const { email, password } = payload;
   if (!password) throw new Error('未提供密码，步骤 3 需要可用密码。');
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -2426,7 +2581,9 @@ async function step3_fillEmailPassword(payload) {
   }
 
   await humanPause(600, 1500);
-  fillInput(snapshot.passwordInput, password);
+  await performOperationWithDelay({ stepKey: 'fill-password', kind: 'fill', label: 'signup-password' }, async () => {
+    fillInput(snapshot.passwordInput, password);
+  });
   log('步骤 3：密码已填写');
 
   const submitBtn = snapshot.submitButton
@@ -2439,8 +2596,6 @@ async function step3_fillEmailPassword(payload) {
     logSignupPasswordDiagnostics('步骤 3：当前密码页同时存在一次性验证码入口', 'info');
   }
 
-  // Report complete BEFORE submit, because submit causes page navigation
-  // which kills the content script connection
   const signupVerificationRequestedAt = submitBtn ? Date.now() : null;
   const completionPayload = {
     email,
@@ -2450,6 +2605,7 @@ async function step3_fillEmailPassword(payload) {
     signupVerificationRequestedAt,
     deferredSubmit: Boolean(submitBtn),
   };
+
   reportComplete(3, completionPayload);
 
   if (submitBtn) {
@@ -2458,7 +2614,9 @@ async function step3_fillEmailPassword(payload) {
         throwIfStopped();
         await sleep(500);
         await humanPause(500, 1300);
-        simulateClick(submitBtn);
+        await performOperationWithDelay({ stepKey: 'fill-password', kind: 'submit', label: 'submit-signup-password' }, async () => {
+          simulateClick(submitBtn);
+        });
         log('步骤 3：表单已提交');
       } catch (error) {
         if (!isStopError(error)) {
@@ -2493,7 +2651,7 @@ const SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX = 'SIGNUP_PHONE_PASSWORD_MISMA
 const AUTH_MAX_CHECK_ATTEMPTS_ERROR_PREFIX = 'AUTH_MAX_CHECK_ATTEMPTS::';
 const STEP8_EMAIL_IN_USE_ERROR_PREFIX = 'STEP8_EMAIL_IN_USE::';
 const SIGNUP_EMAIL_EXISTS_PATTERN = /与此电子邮件地址相关联的帐户已存在|account\s+associated\s+with\s+this\s+email\s+address\s+already\s+exists|email\s+address.*already\s+exists/i;
-const SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN = /incorrect\s+phone\s+number\s+or\s+password|phone\s+number\s+or\s+password/i;
+const SIGNUP_PHONE_PASSWORD_MISMATCH_PATTERN = /incorrect\s+phone\s+number\s+or\s+password|phone\s+number\s+or\s+password|与此(?:电话|手机)号码相关联的帐户已存在|account\s+associated\s+with\s+this\s+phone\s+number\s+already\s+exists/i;
 
 const authPageRecovery = self.MultiPageAuthPageRecovery?.createAuthPageRecovery?.({
   detailPattern: AUTH_TIMEOUT_ERROR_DETAIL_PATTERN,
@@ -2552,9 +2710,9 @@ function createSignupUserAlreadyExistsError() {
 
 function createSignupPhonePasswordMismatchError(detailText = '') {
   const detail = String(detailText || '').replace(/\s+/g, ' ').trim();
-  const suffix = detail ? `页面提示：${detail}` : '页面提示手机号或密码不正确。';
+  const suffix = detail ? `页面提示：${detail}` : '页面提示注册手机号不可继续使用，需重新开始当前轮。';
   return new Error(
-    `${SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX}步骤 3：检测到注册手机号或密码不正确，需要重新开始当前轮。${suffix}`
+    `${SIGNUP_PHONE_PASSWORD_MISMATCH_ERROR_PREFIX}步骤 3：检测到注册手机号异常，需要重新开始当前轮。${suffix}`
   );
 }
 
@@ -2627,7 +2785,7 @@ function isSignupProfilePageUrl(rawUrl = location.href) {
     if (!['auth.openai.com', 'auth0.openai.com', 'accounts.openai.com'].includes(host)) {
       return false;
     }
-    return /\/create-account\/profile(?:[/?#]|$)/i.test(String(parsed.pathname || ''));
+    return /\/(?:create-account\/profile|u\/signup\/profile|signup\/profile)(?:[/?#]|$)/i.test(String(parsed.pathname || ''));
   } catch {
     return false;
   }
@@ -3282,6 +3440,13 @@ function getCurrentAuthRetryPageState(flow = 'auth') {
 }
 
 async function recoverCurrentAuthRetryPage(payload = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const {
     flow = 'auth',
     logLabel = '',
@@ -3300,6 +3465,7 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       maxClickAttempts,
       pathPatterns: resolvedPathPatterns,
       step,
+      stepKey: step === 8 || flow === 'login' ? 'oauth-login' : 'fetch-signup-code',
       timeoutMs,
       waitAfterClickMs,
     });
@@ -3332,7 +3498,9 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
       clickCount += 1;
       log(`${logLabel || `步骤 ${step || '?'}：检测到重试页，正在点击“重试”恢复`}（第 ${clickCount} 次）...`, 'warn');
       await humanPause(300, 800);
-      simulateClick(retryState.retryButton);
+      await performOperationWithDelay({ stepKey: step === 8 || flow === 'login' ? 'oauth-login' : 'fetch-signup-code', kind: 'click', label: 'auth-retry-click' }, async () => {
+        simulateClick(retryState.retryButton);
+      });
       const settleStart = Date.now();
       while (Date.now() - settleStart < waitAfterClickMs) {
         throwIfStopped();
@@ -3991,6 +4159,7 @@ function serializeLoginAuthState(snapshot) {
     url: snapshot?.url || location.href,
     path: snapshot?.path || location.pathname || '',
     displayedEmail: snapshot?.displayedEmail || '',
+    verificationErrorText: getVerificationErrorText(),
     retryEnabled: Boolean(snapshot?.retryEnabled),
     titleMatched: Boolean(snapshot?.titleMatched),
     detailMatched: Boolean(snapshot?.detailMatched),
@@ -4369,28 +4538,37 @@ function throwForStep6FatalState(snapshot, visibleStep = 7) {
 
 async function triggerLoginSubmitAction(button, fallbackField) {
   const form = button?.form || fallbackField?.form || button?.closest?.('form') || fallbackField?.closest?.('form') || null;
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
 
   await humanPause(400, 1100);
-  if (button && isActionEnabled(button)) {
-    simulateClick(button);
-    return;
-  }
-
-  if (form && typeof form.requestSubmit === 'function') {
-    if (button && button.form === form) {
-      form.requestSubmit(button);
-    } else {
-      form.requestSubmit();
+  await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'submit', label: 'login-submit' }, async () => {
+    if (button && isActionEnabled(button)) {
+      simulateClick(button);
+      return;
     }
-    return;
-  }
 
-  if (button && typeof button.click === 'function') {
-    button.click();
-    return;
-  }
+    if (form && typeof form.requestSubmit === 'function') {
+      if (button && button.form === form) {
+        form.requestSubmit(button);
+      } else {
+        form.requestSubmit();
+      }
+      return;
+    }
 
-  throw new Error('未找到可用的登录提交按钮。URL: ' + location.href);
+    if (button && typeof button.click === 'function') {
+      button.click();
+      return;
+    }
+
+    throw new Error('未找到可用的登录提交按钮。URL: ' + location.href);
+  });
 }
 
 function isSignupPasswordErrorPage() {
@@ -4480,6 +4658,13 @@ async function waitForSignupVerificationTransition(timeout = 5000) {
 }
 
 async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const { password } = payload;
   const prepareSource = String(payload?.prepareSource || '').trim() || 'step4_execute';
   const prepareLogLabel = String(payload?.prepareLogLabel || '').trim()
@@ -4554,13 +4739,17 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
       if ((snapshot.passwordInput.value || '') !== password) {
         log(`${prepareLogLabel}：页面仍停留在密码页，正在重新填写密码...`, 'warn');
         await humanPause(450, 1100);
-        fillInput(snapshot.passwordInput, password);
+        await performOperationWithDelay({ stepKey: 'fill-password', kind: 'fill', label: 'retry-signup-password' }, async () => {
+          fillInput(snapshot.passwordInput, password);
+        });
       }
 
       if (snapshot.submitButton && isActionEnabled(snapshot.submitButton)) {
         log(`${prepareLogLabel}：页面仍停留在密码页，正在重新点击“继续”（第 ${recoveryRound}/${maxRecoveryRounds} 次）...`, 'warn');
         await humanPause(350, 900);
-        simulateClick(snapshot.submitButton);
+        await performOperationWithDelay({ stepKey: 'fill-password', kind: 'submit', label: 'retry-submit-signup-password' }, async () => {
+          simulateClick(snapshot.submitButton);
+        });
         await sleep(1200);
         continue;
       }
@@ -4576,8 +4765,9 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
 }
 
 
-async function waitForVerificationSubmitOutcome(step, timeout) {
+async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
   const resolvedTimeout = timeout ?? (step === 8 ? 30000 : 12000);
+  const purpose = options?.purpose || '';
   const start = Date.now();
   let recoveryCount = 0;
   const maxRecoveryCount = 2;
@@ -4623,6 +4813,14 @@ async function waitForVerificationSubmitOutcome(step, timeout) {
       if (postVerificationState?.state === 'step5') {
         return { success: true };
       }
+      if (purpose === 'signup' && isEmailVerificationPage()) {
+        return {
+          success: true,
+          emailVerificationRequired: true,
+          emailVerificationPage: true,
+          url: location.href,
+        };
+      }
     }
 
     const errorText = getVerificationErrorText();
@@ -4657,6 +4855,14 @@ async function waitForVerificationSubmitOutcome(step, timeout) {
     }
     if (postVerificationState?.state === 'step5') {
       return { success: true };
+    }
+    if (purpose === 'signup' && isEmailVerificationPage()) {
+      return {
+        success: true,
+        emailVerificationRequired: true,
+        emailVerificationPage: true,
+        url: location.href,
+      };
     }
   }
 
@@ -4763,6 +4969,13 @@ async function waitForSplitVerificationInputsFilled(inputs, code, timeout = 2500
 async function fillVerificationCode(step, payload) {
   const { code, signupProfile } = payload;
   if (!code) throw new Error('未提供验证码。');
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
 
   if (step === 4) {
     const postVerificationState = getStep4PostVerificationState();
@@ -4854,17 +5067,18 @@ async function fillVerificationCode(step, payload) {
 
   if (splitInputs?.length >= 6) {
     log(`步骤 ${step}：发现分开的单字符验证码输入框，正在逐个填写...`);
-    for (let i = 0; i < 6 && i < splitInputs.length; i++) {
-      const targetInput = splitInputs[i];
-      try {
-        targetInput.focus?.();
-      } catch {}
-      fillInput(splitInputs[i], code[i]);
-      try {
-        targetInput.dispatchEvent(new KeyboardEvent('keyup', { key: code[i], bubbles: true }));
-      } catch {}
-      await sleep(100);
-    }
+    await performOperationWithDelay({ stepKey: 'fetch-signup-code', kind: 'grouped-code', label: 'split-code' }, async () => {
+      for (let i = 0; i < 6 && i < splitInputs.length; i++) {
+        const targetInput = splitInputs[i];
+        try {
+          targetInput.focus?.();
+        } catch {}
+        fillInput(splitInputs[i], code[i]);
+        try {
+          targetInput.dispatchEvent(new KeyboardEvent('keyup', { key: code[i], bubbles: true }));
+        } catch {}
+      }
+    });
     const filled = await waitForSplitVerificationInputsFilled(splitInputs, code, 2500);
     if (!filled) {
       const current = Array.from(splitInputs)
@@ -4880,15 +5094,19 @@ async function fillVerificationCode(step, payload) {
     const splitSubmitBtn = await waitForVerificationSubmitButton(splitInputs[0], 2000).catch(() => null);
     if (splitSubmitBtn) {
       await humanPause(450, 1200);
-      simulateClick(splitSubmitBtn);
+      await performOperationWithDelay({ stepKey: 'fetch-signup-code', kind: 'submit', label: 'submit-code' }, async () => {
+        simulateClick(splitSubmitBtn);
+      });
       log(`步骤 ${step}：分格验证码已提交`);
     } else {
       log(`步骤 ${step}：分格验证码页面未找到可点击提交按钮，继续等待页面自动推进。`, 'info');
     }
 
-    const outcome = await waitForVerificationSubmitOutcome(step);
+    const outcome = await waitForVerificationSubmitOutcome(step, undefined, payload);
     if (outcome.invalidCode) {
       log(`步骤 ${step}：验证码被拒绝：${outcome.errorText}`, 'warn');
+    } else if (outcome.emailVerificationRequired) {
+      log(`步骤 ${step}：手机验证码已通过，页面进入邮箱验证码验证。`, 'ok');
     } else if (outcome.addPhonePage) {
       log(`步骤 ${step}：验证码提交后页面进入手机号页面，当前流程将停止自动授权。`, 'warn');
     } else {
@@ -4906,7 +5124,9 @@ async function fillVerificationCode(step, payload) {
     throw new Error('未找到验证码输入框。URL: ' + location.href);
   }
 
-  fillInput(codeInput, code);
+  await performOperationWithDelay({ stepKey: step === 8 ? 'oauth-login' : 'fetch-signup-code', kind: 'fill', label: 'verification-code' }, async () => {
+    fillInput(codeInput, code);
+  });
   log(`步骤 ${step}：验证码已填写`);
 
   // Submit
@@ -4915,15 +5135,19 @@ async function fillVerificationCode(step, payload) {
 
   if (submitBtn) {
     await humanPause(450, 1200);
-    simulateClick(submitBtn);
+    await performOperationWithDelay({ stepKey: step === 8 ? 'oauth-login' : 'fetch-signup-code', kind: 'submit', label: 'submit-code' }, async () => {
+      simulateClick(submitBtn);
+    });
     log(`步骤 ${step}：验证码已提交`);
   } else {
     log(`步骤 ${step}：未找到可提交的验证码按钮，先等待页面自动推进或反馈结果。`, 'warn');
   }
 
-  const outcome = await waitForVerificationSubmitOutcome(step);
+  const outcome = await waitForVerificationSubmitOutcome(step, undefined, payload);
   if (outcome.invalidCode) {
     log(`步骤 ${step}：验证码被拒绝：${outcome.errorText}`, 'warn');
+  } else if (outcome.emailVerificationRequired) {
+    log(`步骤 ${step}：手机验证码已通过，页面进入邮箱验证码验证。`, 'ok');
   } else if (outcome.addPhonePage) {
     log(`步骤 ${step}：验证码提交后页面进入手机号页面，当前流程将停止自动授权。`, 'warn');
   } else {
@@ -5199,6 +5423,13 @@ async function waitForPhoneLoginEntrySwitchTransition(timeout = 10000) {
 }
 
 async function step6OpenLoginEntry(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   const preferPhoneLogin = String(payload?.loginIdentifierType || '').trim() === 'phone' || (!payload?.email && payload?.phoneNumber);
@@ -5215,7 +5446,9 @@ async function step6OpenLoginEntry(payload, snapshot) {
 
   log(`检测到登录入口页，正在点击 "${getActionText(trigger).slice(0, 80)}"...`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
   await humanPause(350, 900);
-  simulateClick(trigger);
+  await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'click', label: 'open-login-entry' }, async () => {
+    simulateClick(trigger);
+  });
   const nextSnapshot = await waitForLoginEntryOpenTransition();
 
   if (nextSnapshot.state === 'email_page') {
@@ -5267,6 +5500,13 @@ async function step6OpenLoginEntry(payload, snapshot) {
 }
 
 async function step6SwitchToOneTimeCodeLogin(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const switchTrigger = snapshot?.switchTrigger || findOneTimeCodeLoginTrigger();
   if (!switchTrigger || !isActionEnabled(switchTrigger)) {
@@ -5278,7 +5518,9 @@ async function step6SwitchToOneTimeCodeLogin(payload, snapshot) {
   log('已检测到一次性验证码登录入口，准备切换...', 'info', { step: visibleStep, stepKey: 'oauth-login' });
   const loginVerificationRequestedAt = Date.now();
   await humanPause(350, 900);
-  simulateClick(switchTrigger);
+  await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'click', label: 'switch-one-time-code-login' }, async () => {
+    simulateClick(switchTrigger);
+  });
   log('已点击一次性验证码登录', 'info', { step: visibleStep, stepKey: 'oauth-login' });
   await sleep(1200);
   const result = await waitForStep6SwitchTransition(loginVerificationRequestedAt, 10000, { visibleStep });
@@ -5305,6 +5547,13 @@ async function step6SwitchToOneTimeCodeLogin(payload, snapshot) {
 }
 
 async function step6LoginFromPhonePage(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   const phoneInput = currentSnapshot.phoneInput || getLoginPhoneInput();
@@ -5358,7 +5607,9 @@ async function step6LoginFromPhonePage(payload, snapshot) {
 
   await sleep(500);
   const verifiedPhoneInput = fillResult.input || phoneInput;
-  const hiddenSync = syncPhoneHiddenFormValue(verifiedPhoneInput, { phoneNumber, dialCode, inputValue });
+  const hiddenSync = await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'hidden-sync', label: 'login-phone-pre-submit-hidden-sync' }, async () => (
+    syncPhoneHiddenFormValue(verifiedPhoneInput, { phoneNumber, dialCode, inputValue })
+  ));
   const submitButton = getLoginSubmitButton({ allowDisabled: true }) || currentSnapshot.submitButton;
   const preSubmitRenderedValue = getPhoneInputRenderedValue(verifiedPhoneInput);
   const preSubmitHiddenInput = hiddenSync?.input || getPhoneHiddenValueInput(verifiedPhoneInput);
@@ -5416,6 +5667,13 @@ async function step6LoginFromPhonePage(payload, snapshot) {
 }
 
 async function switchFromEmailPageToPhoneLogin(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   let currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   let phoneEntryTrigger = currentSnapshot.phoneEntryTrigger || findLoginPhoneEntryTrigger();
@@ -5427,7 +5685,9 @@ async function switchFromEmailPageToPhoneLogin(payload, snapshot) {
         stepKey: 'oauth-login',
       });
       await humanPause(350, 900);
-      simulateClick(moreOptionsTrigger);
+      await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'click', label: 'login-more-options' }, async () => {
+        simulateClick(moreOptionsTrigger);
+      });
       await sleep(800);
       currentSnapshot = normalizeStep6Snapshot(inspectLoginAuthState());
       phoneEntryTrigger = currentSnapshot.phoneEntryTrigger || findLoginPhoneEntryTrigger();
@@ -5442,7 +5702,9 @@ async function switchFromEmailPageToPhoneLogin(payload, snapshot) {
 
   log(`步骤 ${visibleStep}：当前在邮箱入口，正在切换到手机号登录...`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
   await humanPause(350, 900);
-  simulateClick(phoneEntryTrigger);
+  await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'click', label: 'switch-phone-login' }, async () => {
+    simulateClick(phoneEntryTrigger);
+  });
   const nextSnapshot = normalizeStep6Snapshot(await waitForPhoneLoginEntrySwitchTransition(20000));
   if (nextSnapshot.state === 'phone_entry_page') {
     return step6LoginFromPhonePage(payload, nextSnapshot);
@@ -5491,6 +5753,13 @@ async function switchFromEmailPageToPhoneLogin(payload, snapshot) {
 }
 
 async function step6LoginFromPasswordPage(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   const hasPassword = Boolean(String(payload?.password || '').trim());
@@ -5509,7 +5778,9 @@ async function step6LoginFromPasswordPage(payload, snapshot) {
 
     log('已进入密码页，准备填写密码...', 'info', { step: visibleStep, stepKey: 'oauth-login' });
     await humanPause(550, 1450);
-    fillInput(currentSnapshot.passwordInput, payload.password);
+    await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'fill', label: 'login-password' }, async () => {
+      fillInput(currentSnapshot.passwordInput, payload.password);
+    });
     log('已填写密码', 'info', { step: visibleStep, stepKey: 'oauth-login' });
 
     await sleep(500);
@@ -5560,6 +5831,13 @@ async function step6LoginFromPasswordPage(payload, snapshot) {
 }
 
 async function step6LoginFromEmailPage(payload, snapshot) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const visibleStep = Math.floor(Number(payload?.visibleStep) || 0) || 7;
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
   if (String(payload?.loginIdentifierType || '').trim() === 'phone' && payload?.phoneNumber) {
@@ -5572,7 +5850,9 @@ async function step6LoginFromEmailPage(payload, snapshot) {
 
   if ((emailInput.value || '').trim() !== payload.email) {
     await humanPause(500, 1400);
-    fillInput(emailInput, payload.email);
+    await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'fill', label: 'login-email' }, async () => {
+      fillInput(emailInput, payload.email);
+    });
     log('已填写邮箱', 'info', { step: visibleStep, stepKey: 'oauth-login' });
   } else {
     log('邮箱已在输入框中，准备提交...', 'info', { step: visibleStep, stepKey: 'oauth-login' });
@@ -5783,6 +6063,13 @@ async function waitForAddEmailSubmitOutcome(timeout = 45000) {
 }
 
 async function submitAddEmailAndContinue(payload = {}) {
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
   const email = String(payload.email || '').trim().toLowerCase();
   if (!email) {
     throw new Error('未提供邮箱地址，无法添加邮箱。');
@@ -5795,7 +6082,9 @@ async function submitAddEmailAndContinue(payload = {}) {
   }
 
   await humanPause(500, 1400);
-  fillInput(emailInput, email);
+  await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'fill', label: 'add-email' }, async () => {
+    fillInput(emailInput, email);
+  });
   log(`步骤 8：已填写邮箱：${email}`);
 
   await sleep(500);
@@ -6028,13 +6317,22 @@ function getSerializableRect(el) {
 // Step 5: Fill Name & Birthday / Age
 // ============================================================
 
-function getStep5DirectCompletionPayload({ isAgeMode = false } = {}) {
+function getStep5DirectCompletionPayload({ isAgeMode = false, navigationStarted = false, outcome = null } = {}) {
   const payload = {
-    skippedPostSubmitCheck: true,
-    directProceedToStep6: true,
+    profileSubmitted: true,
+    postSubmitChecked: true,
   };
   if (isAgeMode) {
     payload.ageMode = true;
+  }
+  if (navigationStarted) {
+    payload.navigationStarted = true;
+  }
+  if (outcome?.state) {
+    payload.outcome = outcome.state;
+  }
+  if (outcome?.url) {
+    payload.url = outcome.url;
   }
   return payload;
 }
@@ -6084,9 +6382,262 @@ async function waitForCombinedSignupVerificationProfilePage(timeout = 2500) {
   return isCombinedSignupVerificationProfilePage();
 }
 
+function getStep5ProfilePathPatterns() {
+  return [
+    /\/create-account\/profile(?:[/?#]|$)/i,
+    /\/u\/signup\/profile(?:[/?#]|$)/i,
+    /\/signup\/profile(?:[/?#]|$)/i,
+  ];
+}
+
+function getStep5AuthRetryPathPatterns() {
+  const signupPatterns = typeof getSignupAuthRetryPathPatterns === 'function'
+    ? getSignupAuthRetryPathPatterns()
+    : [];
+  return [
+    ...signupPatterns,
+    ...getStep5ProfilePathPatterns(),
+  ];
+}
+
+function isStep5ProfilePageUrl(rawUrl = location.href) {
+  return isSignupProfilePageUrl(rawUrl);
+}
+
+function getStep5AuthRetryPageState() {
+  if (typeof getAuthTimeoutErrorPageState === 'function') {
+    return getAuthTimeoutErrorPageState({
+      pathPatterns: getStep5AuthRetryPathPatterns(),
+    });
+  }
+
+  if (typeof getCurrentAuthRetryPageState === 'function') {
+    return getCurrentAuthRetryPageState('signup');
+  }
+
+  return null;
+}
+
+function getStep5SubmitButton() {
+  const direct = document.querySelector('button[type="submit"], input[type="submit"]');
+  if (direct && isVisibleElement(direct)) {
+    return direct;
+  }
+
+  const candidates = document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]');
+  return Array.from(candidates).find((el) => {
+    if (!isVisibleElement(el)) return false;
+    const text = typeof getActionText === 'function'
+      ? getActionText(el)
+      : [
+        el?.textContent,
+        el?.value,
+        el?.getAttribute?.('aria-label'),
+        el?.getAttribute?.('title'),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return /完成|创建|create|continue|finish|done|agree/i.test(text);
+  }) || null;
+}
+
+async function waitForStep5SubmitButton(timeout = 5000) {
+  const start = Date.now();
+
+  while (Date.now() - start < timeout) {
+    throwIfStopped();
+    const button = getStep5SubmitButton();
+    if (button) {
+      return button;
+    }
+    await sleep(150);
+  }
+
+  return null;
+}
+
+function isStep5SubmitButtonClickable(button) {
+  return Boolean(button)
+    && isVisibleElement(button)
+    && !button.disabled
+    && button.getAttribute?.('aria-disabled') !== 'true';
+}
+
+function isStep5ProfileStillVisible() {
+  if (isStep5ProfilePageUrl()) {
+    return true;
+  }
+
+  return typeof isStep5Ready === 'function' ? isStep5Ready() : false;
+}
+
+function getStep5PostSubmitSuccessState() {
+  if (getStep5AuthRetryPageState()) {
+    return null;
+  }
+
+  if (isLikelyLoggedInChatgptHomeUrl()) {
+    return {
+      state: 'logged_in_home',
+      url: location.href,
+    };
+  }
+
+  if (typeof isOAuthConsentPage === 'function' && isOAuthConsentPage()) {
+    return {
+      state: 'oauth_consent',
+      url: location.href,
+    };
+  }
+
+  if (typeof isAddPhonePageReady === 'function' && isAddPhonePageReady()) {
+    return {
+      state: 'add_phone',
+      url: location.href,
+    };
+  }
+
+  if (!isStep5ProfileStillVisible()) {
+    return {
+      state: 'left_profile',
+      url: location.href,
+    };
+  }
+
+  return null;
+}
+
+function installStep5NavigationCompletionReporter(completeOnce) {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    return () => {};
+  }
+
+  const onNavigationStarted = () => {
+    completeOnce({
+      navigationStarted: true,
+      outcome: {
+        state: 'navigation_started',
+        url: location.href,
+      },
+    });
+  };
+
+  window.addEventListener('pagehide', onNavigationStarted, { once: true });
+  window.addEventListener('beforeunload', onNavigationStarted, { once: true });
+
+  return () => {
+    window.removeEventListener('pagehide', onNavigationStarted);
+    window.removeEventListener('beforeunload', onNavigationStarted);
+  };
+}
+
+async function waitForStep5SubmitOutcome(options = {}) {
+  const {
+    timeoutMs = 45000,
+    maxAuthRetryRecoveries = 2,
+    maxSubmitClicks = 3,
+    retryClickIntervalMs = 3500,
+  } = options;
+  const start = Date.now();
+  let authRetryRecoveryCount = 0;
+  let submitClickCount = 1;
+  let lastSubmitClickAt = Date.now();
+  let lastStep5Error = '';
+
+  while (Date.now() - start < timeoutMs) {
+    throwIfStopped();
+
+    const retryState = getStep5AuthRetryPageState();
+    if (retryState?.userAlreadyExistsBlocked) {
+      throw createSignupUserAlreadyExistsError();
+    }
+    if (retryState?.maxCheckAttemptsBlocked) {
+      throw createAuthMaxCheckAttemptsError();
+    }
+    if (retryState) {
+      if (authRetryRecoveryCount >= maxAuthRetryRecoveries) {
+        throw new Error(`步骤 5：资料提交后连续进入认证重试页 ${maxAuthRetryRecoveries} 次，页面仍未恢复。URL: ${location.href}`);
+      }
+      authRetryRecoveryCount += 1;
+      log(`步骤 5：资料提交后进入认证重试页，正在自动恢复（${authRetryRecoveryCount}/${maxAuthRetryRecoveries}）...`, 'warn');
+      await recoverCurrentAuthRetryPage({
+        flow: 'signup',
+        logLabel: '步骤 5：资料提交后检测到认证重试页，正在点击“重试”恢复',
+        maxClickAttempts: 2,
+        pathPatterns: getStep5AuthRetryPathPatterns(),
+        step: 5,
+        timeoutMs: 12000,
+      });
+      lastSubmitClickAt = Date.now();
+      continue;
+    }
+
+    const successState = getStep5PostSubmitSuccessState();
+    if (successState) {
+      return successState;
+    }
+
+    const step5Error = typeof getStep5ErrorText === 'function' ? getStep5ErrorText() : '';
+    if (step5Error) {
+      lastStep5Error = step5Error;
+    }
+
+    if (
+      isStep5ProfileStillVisible()
+      && submitClickCount < maxSubmitClicks
+      && Date.now() - lastSubmitClickAt >= retryClickIntervalMs
+    ) {
+      const submitButton = getStep5SubmitButton();
+      if (isStep5SubmitButtonClickable(submitButton)) {
+        submitClickCount += 1;
+        log(`步骤 5：资料提交后仍停留在资料页，正在重新点击“完成帐户创建”（第 ${submitClickCount}/${maxSubmitClicks} 次）...`, 'warn');
+        await humanPause(350, 900);
+        simulateClick(submitButton);
+        lastSubmitClickAt = Date.now();
+        await sleep(1000);
+        continue;
+      }
+    }
+
+    await sleep(250);
+  }
+
+  const finalRetryState = getStep5AuthRetryPageState();
+  if (finalRetryState?.userAlreadyExistsBlocked) {
+    throw createSignupUserAlreadyExistsError();
+  }
+  if (finalRetryState?.maxCheckAttemptsBlocked) {
+    throw createAuthMaxCheckAttemptsError();
+  }
+  if (finalRetryState) {
+    throw new Error(`步骤 5：资料提交后仍停留在认证重试页，自动恢复未完成。URL: ${location.href}`);
+  }
+
+  const finalSuccessState = getStep5PostSubmitSuccessState();
+  if (finalSuccessState) {
+    return finalSuccessState;
+  }
+
+  const finalStep5Error = (typeof getStep5ErrorText === 'function' ? getStep5ErrorText() : '') || lastStep5Error;
+  if (finalStep5Error) {
+    throw new Error(`步骤 5：资料提交后页面返回错误：${finalStep5Error}。URL: ${location.href}`);
+  }
+
+  throw new Error(`步骤 5：资料提交后未检测到页面跳转或恢复成功（已点击提交 ${submitClickCount}/${maxSubmitClicks} 次）。URL: ${location.href}`);
+}
+
 async function step5_fillNameBirthday(payload) {
   const { firstName, lastName, age, year, month, day, prefillOnly = false } = payload;
   if (!firstName || !lastName) throw new Error('未提供姓名数据。');
+  const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
+    ? getOperationDelayRunner()
+    : async (metadata, operation) => {
+        const rootScope = typeof window !== 'undefined' ? window : globalThis;
+        const gate = rootScope?.CodexOperationDelay?.performOperationWithDelay;
+        return typeof gate === 'function' ? gate(metadata, operation) : operation();
+      };
 
   const resolvedAge = age ?? (year ? new Date().getFullYear() - Number(year) : null);
   const hasBirthdayData = [year, month, day].every(value => value != null && !Number.isNaN(Number(value)));
@@ -6113,7 +6664,9 @@ async function step5_fillNameBirthday(payload) {
     throw new Error('未找到姓名输入框。URL: ' + location.href);
   }
   await humanPause(500, 1300);
-  fillInput(nameInput, fullName);
+  await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'fill', label: 'fill-name' }, async () => {
+    fillInput(nameInput, fullName);
+  });
   log(`步骤 5：姓名已填写：${fullName}`);
 
   let birthdayMode = false;
@@ -6183,11 +6736,17 @@ async function step5_fillNameBirthday(payload) {
 
       log('步骤 5：检测到 React Aria 下拉生日字段，正在填写生日...');
       await humanPause(450, 1100);
-      await setReactAriaBirthdaySelect(yearReactSelect, year);
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'select', label: 'select-birthday-year' }, async () => {
+        await setReactAriaBirthdaySelect(yearReactSelect, year);
+      });
       await humanPause(250, 650);
-      await setReactAriaBirthdaySelect(monthReactSelect, month);
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'select', label: 'select-birthday-month' }, async () => {
+        await setReactAriaBirthdaySelect(monthReactSelect, month);
+      });
       await humanPause(250, 650);
-      await setReactAriaBirthdaySelect(dayReactSelect, day);
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'select', label: 'select-birthday-day' }, async () => {
+        await setReactAriaBirthdaySelect(dayReactSelect, day);
+      });
 
       if (hiddenBirthday) {
         const start = Date.now();
@@ -6228,20 +6787,28 @@ async function step5_fillNameBirthday(payload) {
       }
 
       await humanPause(450, 1100);
-      await setSpinButton(yearSpinner, year);
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'fill', label: 'fill-birthday-year' }, async () => {
+        await setSpinButton(yearSpinner, year);
+      });
       await humanPause(250, 650);
-      await setSpinButton(monthSpinner, String(month).padStart(2, '0'));
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'fill', label: 'fill-birthday-month' }, async () => {
+        await setSpinButton(monthSpinner, String(month).padStart(2, '0'));
+      });
       await humanPause(250, 650);
-      await setSpinButton(daySpinner, String(day).padStart(2, '0'));
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'fill', label: 'fill-birthday-day' }, async () => {
+        await setSpinButton(daySpinner, String(day).padStart(2, '0'));
+      });
       log(`步骤 5：生日已填写：${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
     }
 
     const hiddenBirthday = document.querySelector('input[name="birthday"]');
     if (hiddenBirthday) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      hiddenBirthday.value = dateStr;
-      hiddenBirthday.dispatchEvent(new Event('input', { bubbles: true }));
-      hiddenBirthday.dispatchEvent(new Event('change', { bubbles: true }));
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'hidden-sync', label: 'profile-dom-sync' }, async () => {
+        hiddenBirthday.value = dateStr;
+        hiddenBirthday.dispatchEvent(new Event('input', { bubbles: true }));
+        hiddenBirthday.dispatchEvent(new Event('change', { bubbles: true }));
+      });
       log(`步骤 5：已设置隐藏生日输入框：${dateStr}`);
     }
   } else if (ageInput) {
@@ -6249,7 +6816,9 @@ async function step5_fillNameBirthday(payload) {
       throw new Error('检测到年龄字段，但未提供年龄数据。');
     }
     await humanPause(500, 1300);
-    fillInput(ageInput, String(resolvedAge));
+    await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'fill', label: 'fill-birthday' }, async () => {
+      fillInput(ageInput, String(resolvedAge));
+    });
     log(`步骤 5：年龄已填写：${resolvedAge}`);
   } else {
     throw new Error('未找到生日或年龄输入项。URL: ' + location.href);
@@ -6261,15 +6830,19 @@ async function step5_fillNameBirthday(payload) {
     if (!isStep5CheckboxChecked(allConsentCheckbox)) {
       const checkboxLabel = allConsentCheckbox.closest('label');
       await humanPause(500, 1500);
-      if (checkboxLabel && isVisibleElement(checkboxLabel)) {
-        simulateClick(checkboxLabel);
-      } else {
-        simulateClick(allConsentCheckbox);
-      }
+      await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'click', label: 'accept-profile-consent' }, async () => {
+        if (checkboxLabel && isVisibleElement(checkboxLabel)) {
+          simulateClick(checkboxLabel);
+        } else {
+          simulateClick(allConsentCheckbox);
+        }
+      });
       await sleep(250);
 
       if (!isStep5CheckboxChecked(allConsentCheckbox)) {
-        allConsentCheckbox.click();
+        await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'click', label: 'accept-profile-consent-fallback' }, async () => {
+          allConsentCheckbox.click();
+        });
         await sleep(250);
       }
 
@@ -6291,7 +6864,7 @@ async function step5_fillNameBirthday(payload) {
 
   // Click "完成帐户创建" button
   await sleep(500);
-  const completeBtn = document.querySelector('button[type="submit"]')
+  const completeBtn = await waitForStep5SubmitButton(5000)
     || await waitForElementByText('button', /完成|create|continue|finish|done|agree/i, 5000).catch(() => null);
   if (!completeBtn) {
     throw new Error('未找到“完成帐户创建”按钮。URL: ' + location.href);
@@ -6299,20 +6872,42 @@ async function step5_fillNameBirthday(payload) {
 
   const isAgeMode = !birthdayMode && Boolean(ageInput);
   if (isAgeMode) {
-    log('步骤 5：当前为年龄输入模式，点击“完成帐户创建”后将直接完成当前步骤。', 'warn');
+    log('步骤 5：当前为年龄输入模式，点击“完成帐户创建”后将等待页面结果。', 'info');
   }
 
-  await humanPause(500, 1300);
-  simulateClick(completeBtn);
+  let reportedCompletionPayload = null;
+  function completeStep5Once(extra = {}) {
+    if (reportedCompletionPayload) {
+      return reportedCompletionPayload;
+    }
 
-  const completionPayload = getStep5DirectCompletionPayload({ isAgeMode });
-  reportComplete(5, completionPayload);
-
-  if (isAgeMode) {
-    log('步骤 5：年龄模式已点击“完成帐户创建”，当前步骤直接完成，不再等待页面结果。', 'warn');
+    const completionPayload = getStep5DirectCompletionPayload({
+      isAgeMode,
+      navigationStarted: Boolean(extra.navigationStarted),
+      outcome: extra.outcome || null,
+    });
+    reportedCompletionPayload = completionPayload;
+    reportComplete(5, completionPayload);
     return completionPayload;
   }
 
-  log('步骤 5：已点击“完成帐户创建”，当前步骤直接完成，不再等待页面结果。');
-  return completionPayload;
+  const cleanupNavigationReporter = installStep5NavigationCompletionReporter(completeStep5Once);
+
+  await humanPause(500, 1300);
+  await performOperationWithDelay({ stepKey: 'fill-profile', kind: 'submit', label: 'submit-profile' }, async () => {
+    simulateClick(completeBtn);
+  });
+  log('步骤 5：已点击“完成帐户创建”，正在等待页面跳转、重试页或提交结果。');
+
+  try {
+    const outcome = await waitForStep5SubmitOutcome();
+    cleanupNavigationReporter();
+
+    const completionPayload = completeStep5Once({ outcome });
+    log(`步骤 5：资料提交结果已确认（${outcome.state || 'success'}），准备继续后续步骤。`, 'ok');
+    return completionPayload;
+  } catch (error) {
+    cleanupNavigationReporter();
+    throw error;
+  }
 }

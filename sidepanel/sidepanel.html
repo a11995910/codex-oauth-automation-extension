@@ -330,6 +330,13 @@
           <span id="display-gpc-helper-balance" class="data-value mono">余额未获取</span>
         </div>
       </div>
+      <div class="data-row" id="row-gpc-helper-phone-mode" style="display:none;">
+        <span class="data-label">GPC 模式</span>
+        <select id="select-gpc-helper-phone-mode" class="data-select">
+          <option value="manual">手动模式</option>
+          <option value="auto">自动模式</option>
+        </select>
+      </div>
       <div class="data-row" id="row-gpc-helper-country-code" style="display:none;">
         <span class="data-label">GPC 区号</span>
         <select id="select-gpc-helper-country-code" class="data-select">
@@ -431,14 +438,15 @@
             <option value="hotmail-api">Hotmail（账号池）</option>
             <option value="luckmail-api">LuckMail（API 购邮）</option>
             <option value="icloud">iCloud 邮箱</option>
-            <option value="163">163 邮箱 (mail.163.com) 下个版本删除</option>
-            <option value="163-vip">163 VIP 邮箱 (vip.163.com) 下个版本删除</option>
-            <option value="126">126 邮箱 (mail.126.com) 下个版本删除</option>
-            <option value="qq">QQ 邮箱 (wx.mail.qq.com) 下个版本删除</option>
+            <option value="163">163 邮箱 (mail.163.com) 版本老旧，请自行维护使用</option>
+            <option value="163-vip">163 VIP 邮箱 (vip.163.com) 版本老旧，请自行维护使用</option>
+            <option value="126">126 邮箱 (mail.126.com) 版本老旧，请自行维护使用</option>
+            <option value="qq">QQ 邮箱 (wx.mail.qq.com) 版本老旧，请自行维护使用</option>
             <option value="inbucket">Inbucket（自定义主机）</option>
-            <option value="2925">2925 邮箱 (2925.com)</option>
+            <option value="2925">2925 邮箱 (2925.com)（推荐）</option>
             <option value="gmail">Gmail 邮箱 (mail.google.com)</option>
-            <option value="cloudflare-temp-email">Cloudflare Temp Email</option>
+            <option value="cloudflare-temp-email">Cloudflare Temp Email（推荐）</option>
+            <option value="cloudmail">Cloud Mail</option>
           </select>
           <button id="btn-mail-login" class="btn btn-outline btn-sm data-inline-btn" type="button" disabled>登录</button>
         </div>
@@ -463,7 +471,8 @@
           <option value="custom-pool">自定义邮箱池</option>
           <option value="cloudflare">Cloudflare</option>
           <option value="icloud">iCloud 隐私邮箱</option>
-          <option value="cloudflare-temp-email">Cloudflare Temp Email</option>
+          <option value="cloudflare-temp-email">Cloudflare Temp Email（推荐）</option>
+          <option value="cloudmail">Cloud Mail</option>
         </select>
       </div>
       <div class="data-row data-check-row" id="row-custom-email-pool" style="display:none;">
@@ -600,6 +609,21 @@
           </div>
         </div>
       </div>
+      <div class="data-row" id="row-operation-delay-settings">
+        <span class="data-label">操作间延迟</span>
+        <div class="data-inline setting-pair operation-delay-setting-pair">
+          <div class="setting-group setting-group-primary operation-delay-setting">
+            <label class="toggle-switch" for="input-operation-delay-enabled" title="开启后，页面输入、选择、点击、提交、继续、授权操作完成后等待 2 秒">
+              <input type="checkbox" id="input-operation-delay-enabled" checked />
+              <span class="toggle-switch-track" aria-hidden="true">
+                <span class="toggle-switch-thumb"></span>
+              </span>
+              <span>启用</span>
+            </label>
+            <span class="setting-caption">页面输入、选择、点击、提交、继续、授权后等待 2 秒</span>
+          </div>
+        </div>
+      </div>
       <div class="data-row">
         <span class="data-label">自动重试</span>
         <div class="data-inline setting-pair">
@@ -727,6 +751,41 @@
             style="display:none;" />
           <button id="btn-temp-email-domain-mode" class="btn btn-outline btn-sm" type="button">添加</button>
         </div>
+      </div>
+    </div>
+    <div id="cloud-mail-section" class="data-card hotmail-card" style="display:none;">
+      <div class="section-mini-header">
+        <div class="section-mini-copy">
+          <span class="section-label">Cloud Mail</span>
+          <span class="data-value">用于生成邮箱或接收转发邮件（skymail.ink API）</span>
+        </div>
+      </div>
+      <div class="data-row" id="row-cloud-mail-base-url" style="display:none;">
+        <span class="data-label">API 地址</span>
+        <input type="text" id="input-cloud-mail-base-url" class="data-input" placeholder="https://your-cloudmail-domain" />
+      </div>
+      <div class="data-row" id="row-cloud-mail-admin-email" style="display:none;">
+        <span class="data-label">管理员邮箱</span>
+        <input type="text" id="input-cloud-mail-admin-email" class="data-input" placeholder="admin@example.com" />
+      </div>
+      <div class="data-row" id="row-cloud-mail-admin-password" style="display:none;">
+        <span class="data-label">管理员密码</span>
+        <div class="input-with-icon">
+          <input type="password" id="input-cloud-mail-admin-password" class="data-input data-input-with-icon"
+            placeholder="Cloud Mail 管理员密码" />
+          <button id="btn-toggle-cloud-mail-admin-password" class="input-icon-btn" type="button"
+            data-password-toggle="input-cloud-mail-admin-password" data-show-label="显示 Cloud Mail 密码"
+            data-hide-label="隐藏 Cloud Mail 密码" aria-label="显示 Cloud Mail 密码" title="显示 Cloud Mail 密码"></button>
+        </div>
+      </div>
+      <div class="data-row" id="row-cloud-mail-receive-mailbox" style="display:none;">
+        <span class="data-label">邮件接收</span>
+        <input type="text" id="input-cloud-mail-receive-mailbox" class="data-input"
+          placeholder="用于接收转发邮件的邮箱，例如 1@email.example.com" />
+      </div>
+      <div class="data-row" id="row-cloud-mail-domain" style="display:none;">
+        <span class="data-label">域名</span>
+        <input type="text" id="input-cloud-mail-domain" class="data-input" placeholder="例如 mail.example.com" />
       </div>
     </div>
     <div id="hotmail-section" class="data-card hotmail-card" style="display:none;">

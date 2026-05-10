@@ -33,6 +33,7 @@
       setWebNavCommittedListener,
       setStep8PendingReject,
       setStep8TabUpdatedListener,
+      shouldDeferStep9CallbackTimeout,
     } = deps;
 
     const LOCALHOST_CALLBACK_LOCAL_TIMEOUT_MS = 240000;
@@ -96,6 +97,7 @@
         let signupTabId = null;
         const callbackWaitStartedAt = Date.now();
         let timeoutCheckTimer = null;
+        let timeoutDeferredLogged = false;
 
         const cleanupListener = () => {
           if (timeoutCheckTimer) {
@@ -128,11 +130,46 @@
           });
         };
 
+        const isCallbackTimeoutDeferred = async (elapsedMs) => {
+          if (typeof shouldDeferStep9CallbackTimeout !== 'function') {
+            return false;
+          }
+          try {
+            const deferred = await shouldDeferStep9CallbackTimeout({
+              tabId: signupTabId,
+              visibleStep,
+              elapsedMs,
+              oauthUrl: activeState?.oauthUrl || '',
+            });
+            if (deferred && !timeoutDeferredLogged) {
+              timeoutDeferredLogged = true;
+              await addStepLog(
+                visibleStep,
+                '检测到认证页仍在安全验证/授权跳转中，暂停本地回调超时判定，继续等待 localhost 回调...',
+                'info'
+              );
+            }
+            return Boolean(deferred);
+          } catch (error) {
+            await addStepLog(
+              visibleStep,
+              `复核认证页跳转状态失败（${error?.message || error}），继续按原超时规则等待回调。`,
+              'warn'
+            );
+            return false;
+          }
+        };
+
         const checkCallbackTimeout = async () => {
           if (resolved) {
             return;
           }
           const elapsedMs = Date.now() - callbackWaitStartedAt;
+          if (await isCallbackTimeoutDeferred(elapsedMs)) {
+            timeoutCheckTimer = setTimeout(checkCallbackTimeout, CALLBACK_TIMEOUT_CHECK_INTERVAL_MS);
+            return;
+          }
+
           if (elapsedMs >= LOCALHOST_CALLBACK_LOCAL_TIMEOUT_MS) {
             rejectStep9(new Error(`${Math.round(LOCALHOST_CALLBACK_LOCAL_TIMEOUT_MS / 1000)} 秒内未捕获到 localhost 回调跳转，步骤 ${visibleStep} 的点击可能被拦截了。`));
             return;

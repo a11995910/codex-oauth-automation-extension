@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "codex-oauth-automation-extension",
-  "version": "7.3",
-  "version_name": "Ultra7.3",
+  "version": "9.0",
+  "version_name": "Ultra9.0",
   "description": "用于自动执行多步骤 OAuth 注册流程",
   "permissions": [
     "sidePanel",
@@ -51,6 +51,7 @@
       "js": [
         "content/activation-utils.js",
         "content/utils.js",
+        "content/operation-delay.js",
         "content/auth-page-recovery.js",
         "content/phone-country-utils.js",
         "content/phone-auth.js",
@@ -107,6 +108,7 @@
       "js": [
         "content/activation-utils.js",
         "content/utils.js",
+        "content/operation-delay.js",
         "content/duck-mail.js"
       ],
       "run_at": "document_idle"

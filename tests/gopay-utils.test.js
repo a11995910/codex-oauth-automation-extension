@@ -15,6 +15,10 @@ test('GoPay utils normalize manual OTP input', () => {
   assert.equal(api.normalizeGpcOtpChannel('sms'), 'sms');
   assert.equal(api.normalizeGpcOtpChannel('wa'), 'whatsapp');
   assert.equal(api.normalizeGpcOtpChannel('unknown'), 'whatsapp');
+  assert.equal(api.normalizeGpcHelperPhoneMode('auto'), 'auto');
+  assert.equal(api.normalizeGpcHelperPhoneMode('builtin'), 'auto');
+  assert.equal(api.normalizeGpcHelperPhoneMode('manual'), 'manual');
+  assert.equal(api.normalizeGpcHelperPhoneMode('unknown'), 'manual');
 });
 
 test('GoPay utils keeps GPC helper payment method distinct', () => {
@@ -81,10 +85,21 @@ test('GoPay utils formats balance and maps linked-account errors', () => {
     api.formatGpcBalancePayload({
       code: 200,
       message: 'ok',
-      data: { remaining_uses: 0, total_uses: 3, used_uses: 3, status: 'active' },
+      data: { remaining_uses: 0, total_uses: 3, used_uses: 3, status: 'active', auto_mode_enabled: false },
     }),
     '余额 0/3，已用 3，状态 active'
   );
+  assert.equal(
+    api.formatGpcBalancePayload({
+      code: 200,
+      message: 'ok',
+      data: { remaining_uses: 998, total_uses: 1000, used_uses: 2, status: 'active', auto_mode_enabled: true },
+    }),
+    '余额 998/1000，已用 2，状态 active'
+  );
+  assert.equal(api.getGpcBalanceRemainingUses({ data: { remaining_uses: 998 } }), 998);
+  assert.equal(api.isGpcAutoModeEnabled({ data: { auto_mode_enabled: true } }), true);
+  assert.equal(api.isGpcAutoModeEnabled({ data: { auto_mode_enabled: false } }), false);
   assert.deepEqual(
     api.unwrapGpcResponse({ code: 200, message: 'ok', data: { task_id: 'task_1' } }),
     { task_id: 'task_1' }
