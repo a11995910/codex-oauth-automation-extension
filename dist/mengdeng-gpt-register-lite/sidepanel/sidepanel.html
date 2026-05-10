@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>猛蹬GPT注册器</title>
+  <title>猛蹬小店</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -16,13 +16,10 @@
 <body>
   <header>
     <div class="header-left">
-      <button id="btn-repo-home" class="header-icon-link" type="button" aria-label="猛蹬小店" title="猛蹬小店">
-        <img class="header-brand-logo" src="../icons/mengdeng-logo.png" alt="" />
-      </button>
+      <img class="header-brand-logo" src="../icons/mengdeng-logo.png" alt="" aria-hidden="true" />
       <div class="header-version-block">
         <div class="header-version-main">
-          <button id="extension-update-status" class="header-version-title header-version-link" type="button"
-            aria-label="猛蹬小店" title="猛蹬小店">猛蹬小店</button>
+          <span class="header-version-title">猛蹬小店</span>
         </div>
       </div>
     </div>
@@ -77,8 +74,8 @@
     <div id="settings-card" class="data-card">
       <div class="data-row">
         <span class="data-label">来源</span>
-        <select id="select-panel-mode" class="data-select" disabled>
-          <option value="builtin-codex">内置 Codex JSON</option>
+        <select id="select-panel-mode" class="data-select">
+          <option value="builtin-codex" selected>内置 Codex JSON</option>
         </select>
       </div>
         <div id="contribution-mode-panel" class="contribution-mode-panel" hidden>
@@ -228,168 +225,13 @@
           <button id="btn-toggle-password" class="input-icon-btn" type="button" aria-label="显示密码" title="显示密码"></button>
         </div>
       </div>
-      <div class="data-row" id="row-plus-mode" hidden>
-        <span class="data-label">Plus 模式</span>
-        <div class="data-inline setting-pair">
-          <div class="setting-group setting-group-primary">
-            <label class="toggle-switch" for="input-plus-mode-enabled" title="开启后使用 Plus Checkout 支付授权流程">
-              <input type="checkbox" id="input-plus-mode-enabled" />
-              <span class="toggle-switch-track" aria-hidden="true">
-                <span class="toggle-switch-thumb"></span>
-              </span>
-            </label>
-          </div>
-          <span class="setting-caption">Plus 订阅链路</span>
-        </div>
-      </div>
-      <div class="data-row" id="row-plus-payment-method" hidden style="display:none;">
-        <span class="data-label">Plus 支付</span>
-        <div class="data-inline">
-          <select id="select-plus-payment-method" class="data-select">
-            <option value="paypal">PayPal</option>
-            <option value="gopay">GoPay</option>
-            <option value="gpc-helper">GPC</option>
-          </select>
-          <button id="btn-gpc-card-key-purchase" class="btn btn-outline btn-sm data-inline-btn" type="button" style="display:none;">购买卡密</button>
-          <span class="setting-caption" id="plus-payment-method-caption">PayPal 订阅链路</span>
-        </div>
-      </div>
-      <div class="data-row" id="row-paypal-account" hidden style="display:none;">
-        <span class="data-label">PayPal 账号</span>
-        <div class="data-inline">
-          <input type="hidden" id="select-paypal-account" value="" />
-          <div id="paypal-account-picker" class="editable-list-picker">
-            <button id="btn-paypal-account-menu" class="data-select editable-list-trigger" type="button"
-              aria-haspopup="listbox" aria-expanded="false">
-              <span id="paypal-account-current" class="truncate">请先添加 PayPal 账号</span>
-              <span class="editable-list-caret" aria-hidden="true"></span>
-            </button>
-            <div id="paypal-account-menu" class="editable-list-menu" role="listbox" hidden></div>
-          </div>
-          <button id="btn-add-paypal-account" class="btn btn-outline btn-sm data-inline-btn" type="button">添加</button>
-        </div>
-      </div>
-      <div class="data-row" id="row-gpc-helper-api" hidden style="display:none;">
-        <span class="data-label">GPC API</span>
-        <div class="data-inline">
-          <input type="text" id="input-gpc-helper-api" class="data-input gpc-helper-api-input"
-            value="https://gpc.qlhazycoder.top/" placeholder="https://gpc.qlhazycoder.top/" autocomplete="off" readonly />
-          <button id="btn-gpc-helper-convert-api-key" class="btn btn-outline btn-sm data-inline-btn" type="button">转换 API Key</button>
-        </div>
-      </div>
-      <div class="data-row" id="row-gpc-helper-card-key" hidden style="display:none;">
-        <span class="data-label">GPC API Key</span>
-        <div class="data-inline">
-          <div class="input-with-icon">
-            <input type="password" id="input-gpc-helper-card-key" class="data-input data-input-with-icon"
-              placeholder="请输入 GPC API Key（gpc-...）" autocomplete="off" />
-            <button id="btn-toggle-gpc-helper-card-key" class="input-icon-btn" type="button"
-              data-password-toggle="input-gpc-helper-card-key" data-show-label="显示 GPC API Key"
-              data-hide-label="隐藏 GPC API Key" aria-label="显示 GPC API Key" title="显示 GPC API Key"></button>
-          </div>
-          <button id="btn-gpc-helper-balance" class="btn btn-ghost btn-xs data-inline-btn" type="button">查余额</button>
-          <span id="display-gpc-helper-balance" class="data-value mono">余额未获取</span>
-        </div>
-      </div>
-      <div class="data-row" id="row-gpc-helper-country-code" hidden style="display:none;">
-        <span class="data-label">GPC 区号</span>
-        <select id="select-gpc-helper-country-code" class="data-select">
-          <option value="+86">中国 +86</option>
-          <option value="+62">印度尼西亚 +62</option>
-          <option value="+1">美国/加拿大 +1</option>
-          <option value="+852">香港 +852</option>
-          <option value="+853">澳门 +853</option>
-          <option value="+886">台湾 +886</option>
-          <option value="+60">马来西亚 +60</option>
-          <option value="+65">新加坡 +65</option>
-          <option value="+66">泰国 +66</option>
-          <option value="+84">越南 +84</option>
-          <option value="+63">菲律宾 +63</option>
-          <option value="+91">印度 +91</option>
-        </select>
-      </div>
-      <div class="data-row" id="row-gpc-helper-phone" hidden style="display:none;">
-        <span class="data-label">GPC 手机</span>
-        <input type="text" id="input-gpc-helper-phone" class="data-input"
-          placeholder="GPC 专用手机号，不读取 GoPay 手机字段" autocomplete="tel" />
-      </div>
-      <div class="data-row" id="row-gpc-helper-otp-channel" hidden style="display:none;">
-        <span class="data-label">GPC OTP</span>
-        <select id="select-gpc-helper-otp-channel" class="data-select">
-          <option value="whatsapp">WhatsApp</option>
-          <option value="sms">SMS</option>
-        </select>
-      </div>
-      <div class="data-row" id="row-gpc-helper-local-sms-enabled" hidden style="display:none;">
-        <span class="data-label">本地 OTP</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="input-gpc-helper-local-sms-enabled" />
-          <span class="toggle-switch-track" aria-hidden="true">
-            <span class="toggle-switch-thumb"></span>
-          </span>
-        </label>
-        <span class="setting-caption">从本机 helper 读取当前通道 OTP，开启后不弹手动验证码</span>
-      </div>
-      <div class="data-row" id="row-gpc-helper-local-sms-url" hidden style="display:none;">
-        <span class="data-label">OTP 接口</span>
-        <input type="text" id="input-gpc-helper-local-sms-url" class="data-input"
-          placeholder="http://127.0.0.1:18767" autocomplete="off" />
-      </div>
-      <div class="data-row" id="row-gpc-helper-pin" hidden style="display:none;">
-        <span class="data-label">GPC PIN</span>
-        <div class="input-with-icon">
-          <input type="password" id="input-gpc-helper-pin" class="data-input data-input-with-icon"
-            placeholder="请输入 GoPay PIN" autocomplete="off" />
-          <button id="btn-toggle-gpc-helper-pin" class="input-icon-btn" type="button"
-            data-password-toggle="input-gpc-helper-pin" data-show-label="显示 GPC PIN"
-            data-hide-label="隐藏 GPC PIN" aria-label="显示 GPC PIN"
-            title="显示 GPC PIN"></button>
-        </div>
-      </div>
-      <div class="data-row" id="row-gopay-country-code" hidden style="display:none;">
-        <span class="data-label">GoPay 区号</span>
-        <select id="select-gopay-country-code" class="data-select">
-          <option value="+86">中国 +86</option>
-          <option value="+62">印度尼西亚 +62</option>
-          <option value="+1">美国/加拿大 +1</option>
-          <option value="+852">香港 +852</option>
-          <option value="+853">澳门 +853</option>
-          <option value="+886">台湾 +886</option>
-          <option value="+60">马来西亚 +60</option>
-          <option value="+65">新加坡 +65</option>
-          <option value="+66">泰国 +66</option>
-          <option value="+84">越南 +84</option>
-          <option value="+63">菲律宾 +63</option>
-          <option value="+91">印度 +91</option>
-        </select>
-      </div>
-      <div class="data-row" id="row-gopay-phone" hidden style="display:none;">
-        <span class="data-label">GoPay 手机</span>
-        <input type="text" id="input-gopay-phone" class="data-input"
-          placeholder="请输入不含区号的 GoPay / WhatsApp 手机号" autocomplete="tel" />
-      </div>
-      <div class="data-row" id="row-gopay-otp" hidden style="display:none;">
-        <span class="data-label">GoPay 验证码</span>
-        <input type="text" id="input-gopay-otp" class="data-input"
-          placeholder="可选；留空时执行中会弹窗手动输入" inputmode="numeric" autocomplete="one-time-code" />
-      </div>
-      <div class="data-row" id="row-gopay-pin" hidden style="display:none;">
-        <span class="data-label">GoPay PIN</span>
-        <div class="input-with-icon">
-          <input type="password" id="input-gopay-pin" class="data-input data-input-with-icon"
-            placeholder="请输入 GoPay PIN" autocomplete="off" />
-          <button id="btn-toggle-gopay-pin" class="input-icon-btn" type="button"
-            data-password-toggle="input-gopay-pin" data-show-label="显示 GoPay PIN"
-            data-hide-label="隐藏 GoPay PIN" aria-label="显示 GoPay PIN"
-            title="显示 GoPay PIN"></button>
-        </div>
-      </div>
       <div class="data-row module-divider-start" id="row-mail-provider">
         <span class="data-label">邮箱服务</span>
         <div class="data-inline">
           <select id="select-mail-provider" class="data-select">
-            <option value="qq">QQ 邮箱 (wx.mail.qq.com)</option>
-            <option value="2925">2925 邮箱 (2925.com)</option>
+            <option value="qq">QQ 邮箱</option>
+            <option value="2925">2925 邮箱</option>
+            <option value="code-platform">验证码平台</option>
           </select>
           <button id="btn-mail-login" class="btn btn-outline btn-sm data-inline-btn" type="button" disabled>登录</button>
         </div>
@@ -399,7 +241,22 @@
         <textarea id="input-custom-mail-provider-pool" class="data-textarea"
           placeholder="每行一个注册邮箱，例如&#10;alias001@example.com&#10;alias002@example.com"></textarea>
       </div>
-      <div class="data-row" id="row-mail-2925-mode" hidden style="display:none;">
+      <div class="data-row" id="row-code-platform-base-url" style="display:none;">
+        <span class="data-label">验证码平台</span>
+        <input type="text" id="input-code-platform-base-url" class="data-input mono"
+          placeholder="https://code.youkeduo.site" />
+      </div>
+      <div class="data-row" id="row-code-platform-api-key" style="display:none;">
+        <span class="data-label">平台密钥</span>
+        <div class="input-with-icon">
+          <input type="password" id="input-code-platform-api-key" class="data-input data-input-with-icon"
+            placeholder="可选；平台开启鉴权后填写" autocomplete="off" />
+          <button id="btn-toggle-code-platform-api-key" class="input-icon-btn" type="button"
+            data-password-toggle="input-code-platform-api-key" data-show-label="显示平台密钥"
+            data-hide-label="隐藏平台密钥" aria-label="显示平台密钥" title="显示平台密钥"></button>
+        </div>
+      </div>
+      <div class="data-row" id="row-mail-2925-mode" style="display:none;">
         <span class="data-label">2925 模式</span>
         <div id="mail-2925-mode-group" class="choice-group" role="group" aria-label="2925 邮箱模式">
           <button type="button" class="choice-btn" data-mail2925-mode="provide">提供邮箱</button>
@@ -408,8 +265,8 @@
       </div>
       <div class="data-row" id="row-email-generator">
         <span class="data-label">邮箱生成</span>
-        <select id="select-email-generator" class="data-select" disabled>
-          <option value="duck">DuckDuckGo</option>
+        <select id="select-email-generator" class="data-select">
+          <option value="duck" selected>DuckDuckGo</option>
         </select>
       </div>
       <div class="data-row data-check-row" id="row-custom-email-pool" style="display:none;">
@@ -610,6 +467,8 @@
           <span class="data-value">用于生成邮箱或接收转发邮件</span>
         </div>
         <div class="section-mini-actions">
+          <button id="btn-cloudflare-temp-email-usage-guide" class="btn btn-ghost btn-xs" type="button">使用教程</button>
+          <button id="btn-cloudflare-temp-email-github" class="btn btn-ghost btn-xs" type="button">GitHub</button>
         </div>
       </div>
       <div class="data-row" id="row-temp-email-base-url" style="display:none;">
@@ -681,6 +540,7 @@
         <div class="section-mini-actions">
           <button id="btn-toggle-hotmail-form" class="btn btn-outline btn-xs" type="button"
             aria-expanded="false">添加账号</button>
+          <button id="btn-hotmail-usage-guide" class="btn btn-ghost btn-xs" type="button">使用教程</button>
           <button id="btn-clear-used-hotmail-accounts" class="btn btn-ghost btn-xs" type="button">清空已用</button>
           <button id="btn-delete-all-hotmail-accounts" class="btn btn-ghost btn-xs" type="button">全部删除</button>
           <button id="btn-toggle-hotmail-list" class="btn btn-ghost btn-xs" type="button"
@@ -1204,6 +1064,7 @@
               <span class="data-label">注册方式</span>
               <div id="signup-method-group" class="choice-group" role="group" aria-label="注册方式">
                 <button type="button" class="choice-btn" data-signup-method="email">邮箱注册</button>
+                <button type="button" class="choice-btn" data-signup-method="phone">手机号注册</button>
               </div>
             </div>
             <div class="data-row" id="row-account-run-history-helper-base-url" style="display:none;">
@@ -1215,6 +1076,8 @@
               <span class="data-label">接码服务商</span>
               <select id="select-phone-sms-provider" class="data-select mono">
                 <option value="hero-sms">HeroSMS</option>
+                <option value="5sim">5sim</option>
+                <option value="nexsms">NexSMS</option>
                 <option value="smsbower">SMSBower</option>
               </select>
             </div>
@@ -1223,12 +1086,14 @@
               <div class="data-inline hero-sms-country-stack">
                 <select id="select-phone-sms-provider-order" class="data-input mono" multiple size="4" style="display:none;">
                   <option value="hero-sms" selected>HeroSMS</option>
+                  <option value="5sim" selected>5sim</option>
+                  <option value="nexsms" selected>NexSMS</option>
                   <option value="smsbower" selected>SMSBower</option>
                 </select>
                 <div class="hero-sms-country-mainline">
                   <div id="phone-sms-provider-order-menu-shell" class="hero-sms-country-menu">
                     <button id="btn-phone-sms-provider-order-menu" class="btn btn-outline btn-sm hero-sms-country-menu-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
-                      HeroSMS / SMSBower (2/2)
+                      HeroSMS / 5sim / NexSMS / SMSBower (4/4)
                     </button>
                     <div id="phone-sms-provider-order-menu" class="hero-sms-country-menu-dropdown" role="listbox" aria-multiselectable="true" hidden></div>
                   </div>
@@ -1401,7 +1266,7 @@
                       <input type="number" id="input-hero-sms-preferred-price" class="data-input auto-delay-input mono hero-sms-max-price-input" placeholder="例如 0.0512（可空）" min="0" step="0.0001" title="优先尝试该价格档位；可空（空=按优先级策略）" />
                     </div>
                   </div>
-                  <div class="hero-sms-price-control hero-sms-price-control-reuse" hidden>
+                  <div class="hero-sms-price-control hero-sms-price-control-reuse">
                     <span class="hero-sms-settings-caption">号码复用</span>
                     <div class="setting-controls hero-sms-toggle-controls">
                       <label class="toggle-switch hero-sms-price-reuse-toggle" for="input-hero-sms-reuse-enabled" title="开启后会优先复用未超次数的可用号码">
@@ -1461,7 +1326,7 @@
                     <span class="data-unit">次</span>
                   </div>
                 </div>
-                  <div id="row-free-phone-reuse-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" hidden style="display:none;">
+                <div id="row-free-phone-reuse-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
                   <span class="hero-sms-settings-caption">白嫖复用</span>
                   <div class="setting-controls hero-sms-toggle-controls">
                     <label class="toggle-switch" for="input-free-phone-reuse-enabled" title="开启后保存首个成功接码手机号；自动复用关闭时，下次只填号码、不提交，并停止自动流程">
@@ -1472,7 +1337,7 @@
                     </label>
                   </div>
                 </div>
-                <div id="row-free-phone-reuse-auto-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" hidden style="display:none;">
+                <div id="row-free-phone-reuse-auto-enabled" class="hero-sms-settings-cell hero-sms-reuse-cell" style="display:none;">
                   <span class="hero-sms-settings-caption">自动白嫖复用</span>
                   <div class="setting-controls hero-sms-toggle-controls">
                     <label class="toggle-switch" for="input-free-phone-reuse-auto-enabled" title="开启后自动将已记录手机号设为等待短信状态，自动提交并轮询验证码；最多复用 3 次">
@@ -1503,7 +1368,7 @@
             <span class="hero-sms-runtime-key">验证码</span>
             <span id="display-hero-sms-current-code" class="data-value mono hero-sms-runtime-value">未获取</span>
           </div>
-          <div id="row-free-reusable-phone" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2 hero-sms-free-phone-cell" hidden style="display:none;">
+          <div id="row-free-reusable-phone" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2 hero-sms-free-phone-cell" style="display:none;">
             <span class="hero-sms-runtime-key">白嫖号码</span>
             <input type="text" id="input-free-reusable-phone" class="data-input mono hero-sms-manual-phone-input" placeholder="复用手机号" title="已记录号码会自动显示；未记录时可手动填写并记录" />
             <span id="display-free-reusable-phone-country" class="data-value hero-sms-free-phone-country">地区：未保存</span>
@@ -1511,7 +1376,7 @@
             <button id="btn-save-free-reusable-phone" class="btn btn-outline btn-xs data-inline-btn hero-sms-runtime-action" type="button">记录</button>
             <button id="btn-clear-free-reusable-phone" class="btn btn-ghost btn-xs data-inline-btn hero-sms-runtime-action" type="button">清除</button>
           </div>
-          <div id="row-hero-sms-preferred-activation" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2" hidden style="display:none;">
+          <div id="row-hero-sms-preferred-activation" class="hero-sms-runtime-cell hero-sms-runtime-cell-span2" style="display:none;">
             <span class="hero-sms-runtime-key">优先号码</span>
             <select id="select-hero-sms-preferred-activation" class="data-input mono hero-sms-runtime-select">
               <option value="">自动（先复用已有可用号，再创建新号）</option>
@@ -1645,8 +1510,6 @@
   <input id="input-import-settings-file" type="file" accept=".json,application/json" hidden />
   <script src="../managed-alias-utils.js"></script>
   <script src="../mail2925-utils.js"></script>
-  <script src="../paypal-utils.js"></script>
-  <script src="../gopay-utils.js"></script>
   <script src="../phone-sms/providers/hero-sms.js"></script>
   <script src="../phone-sms/providers/five-sim.js"></script>
   <script src="../phone-sms/providers/registry.js"></script>
@@ -1660,11 +1523,9 @@
   <script src="editable-list-picker.js"></script>
   <script src="hotmail-manager.js"></script>
   <script src="mail-2925-manager.js"></script>
-  <script src="paypal-manager.js"></script>
   <script src="icloud-manager.js"></script>
   <script src="luckmail-manager.js"></script>
   <script src="custom-email-pool-manager.js"></script>
-  <script src="contribution-mode.js"></script>
   <script src="ip-proxy-provider-711proxy.js"></script>
   <script src="ip-proxy-panel.js"></script>
   <script src="account-records-manager.js"></script>

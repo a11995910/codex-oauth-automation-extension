@@ -71,8 +71,7 @@
     }
 
     function getErrorMessage(error) {
-      return String(typeof error === 'string' ? error : error?.message || '')
-        .replace(/^GPC_TASK_ENDED::/i, '');
+      return String(typeof error === 'string' ? error : error?.message || '');
     }
 
     function isVerificationMailPollingError(error) {

@@ -120,14 +120,14 @@ test('builtin codex auth downloads json into a fixed Downloads subfolder', async
     },
   });
 
-  const downloadId = await auth.downloadAuthJson('codex-flow@example.com-plus.json', {
+  const downloadId = await auth.downloadAuthJson('codex-flow@example.com-lite.json', {
     email: 'flow@example.com',
     type: 'codex',
   });
 
   assert.equal(downloadId, 42);
   assert.equal(downloadCalls.length, 1);
-  assert.equal(downloadCalls[0].filename, 'Codex-OAuth-JSON/codex-flow@example.com-plus.json');
+  assert.equal(downloadCalls[0].filename, 'Codex-OAuth-JSON/codex-flow@example.com-lite.json');
   assert.equal(downloadCalls[0].saveAs, false);
   assert.equal(downloadCalls[0].conflictAction, 'uniquify');
 });

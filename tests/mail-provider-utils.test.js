@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  HOTMAIL_PROVIDER,
   getIcloudForwardMailConfig,
   getIcloudForwardMailProviderOptions,
   getMailProviderConfig,
@@ -11,29 +10,36 @@ const {
   normalizeMailProvider,
 } = require('../mail-provider-utils.js');
 
-test('normalizeMailProvider accepts 126 and falls back to 163', () => {
-  assert.equal(normalizeMailProvider('126'), '126');
-  assert.equal(normalizeMailProvider('163-vip'), '163-vip');
-  assert.equal(normalizeMailProvider('unknown-provider'), '163');
+test('normalizeMailProvider only keeps simplified mail providers', () => {
+  assert.equal(normalizeMailProvider('qq'), 'qq');
+  assert.equal(normalizeMailProvider('2925'), '2925');
+  assert.equal(normalizeMailProvider('code-platform'), 'code-platform');
+  assert.equal(normalizeMailProvider('126'), 'qq');
+  assert.equal(normalizeMailProvider('hotmail-api'), 'qq');
+  assert.equal(normalizeMailProvider('unknown-provider'), 'qq');
 });
 
-test('getMailProviderConfig returns the shared NetEase source for 126 mail', () => {
+test('getMailProviderConfig returns simplified provider configs', () => {
   assert.deepEqual(
-    getMailProviderConfig({ mailProvider: '126' }),
+    getMailProviderConfig({ mailProvider: 'qq' }),
     {
-      source: 'mail-163',
-      url: 'https://mail.126.com/js6/main.jsp?df=mail163_letter#module=mbox.ListModule%7C%7B%22fid%22%3A1%2C%22order%22%3A%22date%22%2C%22desc%22%3Atrue%7D',
-      label: '126 邮箱',
+      source: 'qq-mail',
+      url: 'https://wx.mail.qq.com/',
+      label: 'QQ 邮箱',
     }
   );
-});
-
-test('getMailProviderConfig preserves the hotmail provider sentinel', () => {
   assert.deepEqual(
-    getMailProviderConfig({ mailProvider: HOTMAIL_PROVIDER }),
+    getMailProviderConfig({ mailProvider: '2925' }),
     {
-      provider: HOTMAIL_PROVIDER,
-      label: 'Hotmail（微软 Graph）',
+      provider: '2925',
+      label: '2925 邮箱',
+    }
+  );
+  assert.deepEqual(
+    getMailProviderConfig({ mailProvider: 'code-platform' }),
+    {
+      provider: 'code-platform',
+      label: '验证码平台',
     }
   );
 });
@@ -50,10 +56,10 @@ test('iCloud forward mailbox helpers normalize and expose supported providers', 
 });
 
 test('getIcloudForwardMailConfig reuses shared mailbox provider configs', () => {
-  assert.deepEqual(getIcloudForwardMailConfig('126'), {
-    source: 'mail-163',
-    url: 'https://mail.126.com/js6/main.jsp?df=mail163_letter#module=mbox.ListModule%7C%7B%22fid%22%3A1%2C%22order%22%3A%22date%22%2C%22desc%22%3Atrue%7D',
-    label: '126 邮箱',
+  assert.deepEqual(getIcloudForwardMailConfig('qq'), {
+    source: 'qq-mail',
+    url: 'https://wx.mail.qq.com/',
+    label: 'QQ 邮箱',
   });
   assert.deepEqual(getIcloudForwardMailConfig('gmail'), {
     source: 'gmail-mail',

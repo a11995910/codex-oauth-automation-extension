@@ -278,7 +278,6 @@
         failedStep: Number.isInteger(failedStep) && failedStep > 0 ? failedStep : null,
         source,
         autoRunContext: source === 'auto' ? autoRunContext : null,
-        plusModeEnabled: Boolean(record.plusModeEnabled),
         contributionMode: Boolean(record.contributionMode),
       };
     }
@@ -354,7 +353,6 @@
         failedStep: Number.isInteger(failedStep) && failedStep > 0 ? failedStep : null,
         source,
         autoRunContext,
-        plusModeEnabled: Boolean(state.plusModeEnabled),
         contributionMode: Boolean(state.contributionMode),
       };
     }

@@ -19,6 +19,8 @@
       isTabAlive,
       LUCKMAIL_PROVIDER,
       CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+      CLOUD_MAIL_PROVIDER = 'cloudmail',
+      CODE_PLATFORM_PROVIDER = 'code-platform',
       resolveVerificationStep,
       reuseOrCreateTab,
       sendToContentScript,
@@ -62,9 +64,16 @@
     }
 
     function isPhoneSignupState(state = {}) {
+      const identifierType = String(state?.accountIdentifierType || '').trim().toLowerCase();
+      const frozenMethod = String(state?.resolvedSignupMethod || '').trim().toLowerCase();
+      const configuredMethod = String(state?.signupMethod || '').trim().toLowerCase();
+      if (identifierType === 'email' || frozenMethod === 'email') {
+        return false;
+      }
+
       return resolveSignupMethod(state) === 'phone'
-        || state?.accountIdentifierType === 'phone'
-        || Boolean(state?.signupPhoneActivation);
+        || identifierType === 'phone'
+        || (configuredMethod === 'phone' && Boolean(state?.signupPhoneActivation));
     }
 
     async function executeSignupPhoneCodeStep(state, signupTabId) {
@@ -78,6 +87,10 @@
         signupProfile,
       });
 
+      if (result?.emailVerificationRequired || result?.emailVerificationPage) {
+        return result || {};
+      }
+
       await completeStepFromBackground(4, {
         phoneVerification: true,
         code: result?.code || '',
@@ -85,6 +98,78 @@
         ...(result?.skipProfileStepReason ? { skipProfileStepReason: result.skipProfileStepReason } : {}),
       });
       return result || {};
+    }
+
+    async function executeSignupEmailVerificationStep(state, stepStartedAt, verificationSessionKey) {
+      if (shouldUseCustomRegistrationEmail(state)) {
+        await confirmCustomVerificationStepBypass(4);
+        return;
+      }
+
+      const mail = getMailConfig(state);
+      if (mail.error) throw new Error(mail.error);
+
+      const verificationFilterAfterTimestamp = mail.provider === '2925'
+        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
+        : stepStartedAt;
+
+      if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
+        await addLog('步骤 4：正在确认 iCloud 邮箱登录态...', 'info');
+        await ensureIcloudMailSession({
+          state,
+          step: 4,
+          actionLabel: '步骤 4：确认 iCloud 邮箱登录态',
+        });
+      }
+
+      throwIfStopped();
+      if (
+        mail.provider === HOTMAIL_PROVIDER
+        || mail.provider === LUCKMAIL_PROVIDER
+        || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
+        || mail.provider === CLOUD_MAIL_PROVIDER
+      ) {
+        await addLog(`步骤 4：正在通过 ${mail.label} 轮询验证码...`);
+      } else if (mail.provider === '2925') {
+        await addLog(`步骤 4：正在打开${mail.label}...`);
+        if (typeof ensureMail2925MailboxSession === 'function') {
+          await ensureMail2925MailboxSession({
+            accountId: state.currentMail2925AccountId || null,
+            forceRelogin: false,
+            allowLoginWhenOnLoginPage: Boolean(state?.mail2925UseAccountPool),
+            expectedMailboxEmail: getExpectedMail2925MailboxEmail(state),
+            actionLabel: '步骤 4：确认 2925 邮箱登录态',
+          });
+        } else {
+          await focusOrOpenMailTab(mail);
+        }
+        await addLog(`步骤 4：将直接使用当前已登录的 ${mail.label} 轮询验证码。`, 'info');
+      } else {
+        await addLog(`步骤 4：正在打开${mail.label}...`);
+        await focusOrOpenMailTab(mail);
+      }
+
+      const shouldRequestFreshCodeFirst = ![
+        HOTMAIL_PROVIDER,
+        LUCKMAIL_PROVIDER,
+        CLOUDFLARE_TEMP_EMAIL_PROVIDER,
+        CLOUD_MAIL_PROVIDER,
+        CODE_PLATFORM_PROVIDER,
+      ].includes(mail.provider);
+      const signupProfile = buildSignupProfileForVerificationStep();
+
+      await resolveVerificationStep(4, state, mail, {
+        filterAfterTimestamp: verificationFilterAfterTimestamp,
+        sessionKey: verificationSessionKey,
+        disableTimeBudgetCap: mail.provider === '2925',
+        requestFreshCodeFirst: shouldRequestFreshCodeFirst,
+        signupProfile,
+        resendIntervalMs: mail.provider === LUCKMAIL_PROVIDER
+          ? 15000
+          : ((mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
+            ? 0
+            : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS),
+      });
     }
 
     async function focusOrOpenMailTab(mail) {
@@ -140,10 +225,11 @@
           password: state.password || state.customPassword || '',
           prepareSource: 'step4_execute',
           prepareLogLabel: '步骤 4 执行',
+          timeoutMs: 60000,
         },
       };
-      const prepareTimeoutMs = 30000;
-      const prepareResponseTimeoutMs = 30000;
+      const prepareTimeoutMs = 75000;
+      const prepareResponseTimeoutMs = 60000;
       const prepareStartAt = Date.now();
       let prepareResult = null;
 
@@ -151,15 +237,18 @@
         throwIfStopped();
 
         try {
-          prepareResult = typeof sendToContentScript === 'function'
-            ? await sendToContentScript('signup-page', prepareRequest, {
-              responseTimeoutMs: prepareResponseTimeoutMs,
-            })
-            : await sendToContentScriptResilient('signup-page', prepareRequest, {
-              timeoutMs: Math.max(1000, prepareTimeoutMs - (Date.now() - prepareStartAt)),
-              responseTimeoutMs: prepareResponseTimeoutMs,
+          const remainingMs = Math.max(1000, prepareTimeoutMs - (Date.now() - prepareStartAt));
+          prepareResult = typeof sendToContentScriptResilient === 'function'
+            ? await sendToContentScriptResilient('signup-page', prepareRequest, {
+              timeoutMs: remainingMs,
+              responseTimeoutMs: Math.min(prepareResponseTimeoutMs, remainingMs),
               retryDelayMs: 700,
               logMessage: '步骤 4：认证页正在切换，等待页面重新就绪后继续检测...',
+              logStep: 4,
+              logStepKey: 'verify-email',
+            })
+            : await sendToContentScript('signup-page', prepareRequest, {
+              responseTimeoutMs: Math.min(prepareResponseTimeoutMs, remainingMs),
             });
           break;
         } catch (error) {
@@ -209,75 +298,15 @@
       }
 
       if (isPhoneSignupState(state)) {
-        return executeSignupPhoneCodeStep(state, signupTabId);
-      }
-
-      if (shouldUseCustomRegistrationEmail(state)) {
-        await confirmCustomVerificationStepBypass(4);
-        return;
-      }
-
-      const mail = getMailConfig(state);
-      if (mail.error) throw new Error(mail.error);
-
-      const verificationFilterAfterTimestamp = mail.provider === '2925'
-        ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
-        : stepStartedAt;
-
-      if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
-        await addLog('步骤 4：正在确认 iCloud 邮箱登录态...', 'info');
-        await ensureIcloudMailSession({
-          state,
-          step: 4,
-          actionLabel: '步骤 4：确认 iCloud 邮箱登录态',
-        });
-      }
-
-      throwIfStopped();
-      if (
-        mail.provider === HOTMAIL_PROVIDER
-        || mail.provider === LUCKMAIL_PROVIDER
-        || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
-      ) {
-        await addLog(`步骤 4：正在通过 ${mail.label} 轮询验证码...`);
-      } else if (mail.provider === '2925') {
-        await addLog(`步骤 4：正在打开${mail.label}...`);
-        if (typeof ensureMail2925MailboxSession === 'function') {
-          await ensureMail2925MailboxSession({
-            accountId: state.currentMail2925AccountId || null,
-            forceRelogin: false,
-            allowLoginWhenOnLoginPage: Boolean(state?.mail2925UseAccountPool),
-            expectedMailboxEmail: getExpectedMail2925MailboxEmail(state),
-            actionLabel: '步骤 4：确认 2925 邮箱登录态',
-          });
-        } else {
-          await focusOrOpenMailTab(mail);
+        const phoneResult = await executeSignupPhoneCodeStep(state, signupTabId);
+        if (phoneResult?.emailVerificationRequired || phoneResult?.emailVerificationPage) {
+          await addLog('步骤 4：手机验证码已通过，OpenAI 要求继续邮箱验证，切换到邮箱验证码轮询。', 'info');
+          return executeSignupEmailVerificationStep(state, stepStartedAt, verificationSessionKey);
         }
-        await addLog(`步骤 4：将直接使用当前已登录的 ${mail.label} 轮询验证码。`, 'info');
-      } else {
-        await addLog(`步骤 4：正在打开${mail.label}...`);
-        await focusOrOpenMailTab(mail);
+        return phoneResult;
       }
 
-      const shouldRequestFreshCodeFirst = ![
-        HOTMAIL_PROVIDER,
-        LUCKMAIL_PROVIDER,
-        CLOUDFLARE_TEMP_EMAIL_PROVIDER,
-      ].includes(mail.provider);
-      const signupProfile = buildSignupProfileForVerificationStep();
-
-      await resolveVerificationStep(4, state, mail, {
-        filterAfterTimestamp: verificationFilterAfterTimestamp,
-        sessionKey: verificationSessionKey,
-        disableTimeBudgetCap: mail.provider === '2925',
-        requestFreshCodeFirst: shouldRequestFreshCodeFirst,
-        signupProfile,
-        resendIntervalMs: mail.provider === LUCKMAIL_PROVIDER
-          ? 15000
-          : ((mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
-            ? 0
-            : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS),
-      });
+      return executeSignupEmailVerificationStep(state, stepStartedAt, verificationSessionKey);
     }
 
     return { executeStep4 };

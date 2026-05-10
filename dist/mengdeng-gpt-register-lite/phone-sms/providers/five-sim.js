@@ -737,10 +737,10 @@
       throw new Error('可复用的 5sim 手机号无效。');
     }
     const config = resolveConfig(state, deps);
-    const numberWithoutPlus = String(normalizedActivation.phoneNumber || '')
+    const phoneNumberForReuse = String(normalizedActivation.phoneNumber || '')
       .replace(/^\+/, '')
       .replace(/[^0-9]+/g, '');
-    const payload = await fetchJson(config, `/v1/user/reuse/${DEFAULT_PRODUCT}/${numberWithoutPlus || phoneDigits}`, {
+    const payload = await fetchJson(config, `/v1/user/reuse/${DEFAULT_PRODUCT}/${phoneNumberForReuse || phoneDigits}`, {
       actionLabel: '5sim 复用手机号',
     });
     return normalizeActivation(payload, normalizedActivation);

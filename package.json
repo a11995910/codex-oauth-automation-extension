@@ -1,8 +1,8 @@
 {
-  "name": "codex-oauth-automation-extension",
+  "name": "mengdeng-gpt-register-lite",
   "license": "MIT",
   "private": true,
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/auto-run-add-phone-stop.test.js tests/background-builtin-codex-auth.test.js tests/five-sim-provider.test.js tests/mail-provider-utils.test.js tests/phone-country-utils.test.js tests/sidepanel-phone-verification-settings.test.js tests/step9-profile-after-phone-verification.test.js"
   }
 }

@@ -147,6 +147,53 @@ test('sidepanel html exposes phone verification toggle and multi-provider SMS ro
   assert.doesNotMatch(html, /id="input-account-run-history-text-enabled"/);
 });
 
+test('sidepanel labels SMSBower correctly in phone SMS provider order', () => {
+  const smsBowerLabelBranches = sidepanelSource.match(
+    /normalized === PHONE_SMS_PROVIDER_SMSBOWER\)[\s\S]{0,120}return 'SMSBower';/g
+  ) || [];
+  assert.ok(
+    smsBowerLabelBranches.length >= 2,
+    '两处服务商标签函数都必须显式处理 SMSBower，避免运行时兜底成 HeroSMS'
+  );
+
+  const bundle = [
+    extractFunction('normalizePhoneSmsProvider'),
+    extractFunction('normalizePhoneSmsProviderValue'),
+    extractFunction('normalizePhoneSmsProviderOrderValue'),
+    extractFunction('getPhoneSmsProviderLabel'),
+    extractFunction('formatPhoneSmsProviderOrderSummary'),
+  ].join('\n');
+
+  const api = new Function(`
+const window = {};
+const PHONE_SMS_PROVIDER_HERO_SMS = 'hero-sms';
+const PHONE_SMS_PROVIDER_HERO = 'hero-sms';
+const PHONE_SMS_PROVIDER_FIVE_SIM = '5sim';
+const PHONE_SMS_PROVIDER_NEXSMS = 'nexsms';
+const PHONE_SMS_PROVIDER_SMSBOWER = 'smsbower';
+const DEFAULT_PHONE_SMS_PROVIDER_ORDER = Object.freeze([
+  PHONE_SMS_PROVIDER_HERO,
+  PHONE_SMS_PROVIDER_FIVE_SIM,
+  PHONE_SMS_PROVIDER_NEXSMS,
+  PHONE_SMS_PROVIDER_SMSBOWER,
+]);
+function getSelectedPhoneSmsProvider() { return PHONE_SMS_PROVIDER_HERO; }
+
+${bundle}
+
+return {
+  getPhoneSmsProviderLabel,
+  formatPhoneSmsProviderOrderSummary,
+};
+`)();
+
+  assert.equal(api.getPhoneSmsProviderLabel('smsbower'), 'SMSBower');
+  assert.equal(
+    api.formatPhoneSmsProviderOrderSummary(['hero-sms', 'smsbower']),
+    '1. HeroSMS → 2. SMSBower'
+  );
+});
+
 test('sidepanel source wires free reusable phone save and clear actions to runtime messages', () => {
   assert.match(sidepanelSource, /const inputFreePhoneReuseEnabled = document\.getElementById\('input-free-phone-reuse-enabled'\);/);
   assert.match(sidepanelSource, /const inputFreePhoneReuseAutoEnabled = document\.getElementById\('input-free-phone-reuse-auto-enabled'\);/);
@@ -205,94 +252,16 @@ test('sidepanel source wires runtime signup phone field to background sync messa
   assert.match(sidepanelSource, /inputSignupPhone\.addEventListener\('input'[\s\S]*signupPhoneInputDirty = true/);
 });
 
-test('sidepanel warns once before using phone signup with CPA source', async () => {
-  assert.match(
-    sidepanelSource,
-    /signupMethodButtons\.forEach\(\(button\) => \{[\s\S]*await confirmCpaPhoneSignupIfNeeded\(\{[\s\S]*signupMethod: nextSignupMethod,[\s\S]*panelMode: getSelectedPanelMode\(\),/
-  );
-  assert.match(
-    sidepanelSource,
-    /selectPanelMode\.addEventListener\('change', async \(\) => \{[\s\S]*await confirmCpaPhoneSignupIfNeeded\(\{[\s\S]*signupMethod: getSelectedSignupMethod\(\),[\s\S]*panelMode: nextPanelMode,/
-  );
-
-  const bundle = [
-    extractFunction('normalizeSignupMethod'),
-    extractFunction('normalizePanelMode'),
-    extractFunction('isPromptDismissed'),
-    extractFunction('setPromptDismissed'),
-    extractFunction('isCpaPhoneSignupPromptDismissed'),
-    extractFunction('setCpaPhoneSignupPromptDismissed'),
-    extractFunction('shouldWarnCpaPhoneSignup'),
-    extractFunction('openCpaPhoneSignupWarningModal'),
-    extractFunction('confirmCpaPhoneSignupIfNeeded'),
-  ].join('\n');
-
+test('sidepanel normalizes every source to builtin Codex JSON', () => {
   const api = new Function(`
-const SIGNUP_METHOD_PHONE = 'phone';
-const SIGNUP_METHOD_EMAIL = 'email';
-const DEFAULT_SIGNUP_METHOD = SIGNUP_METHOD_EMAIL;
-const CPA_PHONE_SIGNUP_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-cpa-phone-signup-prompt-dismissed';
-const CPA_PHONE_SIGNUP_WARNING_MESSAGE = 'CPA 未适配手机号注册模式，认证成功后无法使用。请使用 SUB2API，或者认证成功后重新登录一遍进行解决。';
-const storage = new Map();
-const localStorage = {
-  getItem(key) {
-    return storage.has(key) ? storage.get(key) : null;
-  },
-  setItem(key, value) {
-    storage.set(key, String(value));
-  },
-  removeItem(key) {
-    storage.delete(key);
-  },
-};
-let selectedSignupMethod = 'phone';
-let selectedPanelMode = 'cpa';
-let capturedOptions = null;
-let modalResult = { confirmed: true, optionChecked: false };
-function getSelectedSignupMethod() {
-  return selectedSignupMethod;
-}
-function getSelectedPanelMode() {
-  return selectedPanelMode;
-}
-async function openConfirmModalWithOption(options) {
-  capturedOptions = options;
-  return modalResult;
-}
-${bundle}
-return {
-  shouldWarnCpaPhoneSignup,
-  confirmCpaPhoneSignupIfNeeded,
-  getCapturedOptions() {
-    return capturedOptions;
-  },
-  getDismissed() {
-    return localStorage.getItem(CPA_PHONE_SIGNUP_PROMPT_DISMISSED_STORAGE_KEY);
-  },
-  setModalResult(result) {
-    modalResult = result;
-  },
-};
+${extractFunction('normalizePanelMode')}
+return { normalizePanelMode };
 `)();
 
-  assert.equal(api.shouldWarnCpaPhoneSignup('phone', 'cpa'), true);
-  assert.equal(api.shouldWarnCpaPhoneSignup('email', 'cpa'), false);
-  assert.equal(api.shouldWarnCpaPhoneSignup('phone', 'sub2api'), false);
-  assert.equal(api.shouldWarnCpaPhoneSignup('phone', 'codex2api'), false);
-
-  const firstResult = await api.confirmCpaPhoneSignupIfNeeded({ signupMethod: 'phone', panelMode: 'cpa' });
-  assert.equal(firstResult, true);
-  assert.equal(api.getCapturedOptions().title, 'CPA 手机号注册提醒');
-  assert.equal(api.getCapturedOptions().message, 'CPA 未适配手机号注册模式，认证成功后无法使用。请使用 SUB2API，或者认证成功后重新登录一遍进行解决。');
-  assert.equal(api.getCapturedOptions().confirmLabel, '继续');
-  assert.equal(api.getCapturedOptions().optionLabel, '不再提醒');
-  assert.equal(api.getDismissed(), null);
-
-  api.setModalResult({ confirmed: false, optionChecked: true });
-  const secondResult = await api.confirmCpaPhoneSignupIfNeeded({ signupMethod: 'phone', panelMode: 'cpa' });
-  assert.equal(secondResult, false);
-  assert.equal(api.getDismissed(), '1');
-  assert.equal(api.shouldWarnCpaPhoneSignup('phone', 'cpa'), false);
+  assert.equal(api.normalizePanelMode('builtin-codex'), 'builtin-codex');
+  assert.equal(api.normalizePanelMode('cpa'), 'builtin-codex');
+  assert.equal(api.normalizePanelMode('sub2api'), 'builtin-codex');
+  assert.equal(api.normalizePanelMode('manager'), 'builtin-codex');
 });
 
 test('manual step 3 uses phone identity without requiring registration email', () => {
@@ -844,7 +813,6 @@ function normalizeCloudflareDomainValue(value) { return String(value || '').trim
 function getCloudflareTempEmailDomainsFromState() { return { domains: [], activeDomain: '' }; }
 function normalizeCloudflareTempEmailDomainValue(value) { return String(value || '').trim(); }
 function getSelectedLocalCpaStep9Mode() { return 'submit'; }
-function getSelectedPlusPaymentMethod() { return 'paypal'; }
 function getSelectedMail2925Mode() { return 'provide'; }
 function getSelectedHotmailServiceMode() { return 'local'; }
 function buildManagedAliasBaseEmailPayload() { return { gmailBaseEmail: '', mail2925BaseEmail: '', emailPrefix: '' }; }

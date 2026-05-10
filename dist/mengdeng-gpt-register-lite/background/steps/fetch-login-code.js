@@ -217,6 +217,27 @@
       }
     }
 
+    async function completeStep8WhenAuthAlreadyOnAddPhone(visibleStep, options = {}) {
+      await setState({
+        step8VerificationTargetEmail: '',
+        loginVerificationRequestedAt: null,
+      });
+      const url = String(options?.url || '').trim();
+      await addLog(
+        `步骤 ${visibleStep}：当前认证页已进入手机号页面${url ? `（${url}）` : ''}，跳过邮箱登录验证码并交给后续手机号验证步骤处理。`,
+        'warn'
+      );
+      if (typeof completeStepFromBackground === 'function') {
+        await completeStepFromBackground(visibleStep, {
+          loginVerificationRequestedAt: null,
+          skipLoginVerificationStep: true,
+          phoneVerificationRequired: true,
+          directAddPhonePage: true,
+          url,
+        });
+      }
+    }
+
     function isStep8AddPhoneStateError(error) {
       const message = String(error?.message || error || '');
       return /add-phone|手机号页面|手机号验证页|phone[\s-_]verification|phone\s+number/i.test(message);
@@ -420,6 +441,10 @@
       if (pageState?.state === 'phone_verification_page') {
         return executeLoginPhoneCodeStep(state, authTabId, visibleStep);
       }
+      if (pageState?.state === 'add_phone_page') {
+        await completeStep8WhenAuthAlreadyOnAddPhone(visibleStep, { url: pageState?.url || '' });
+        return;
+      }
 
       let preparedState = state;
       const addEmailPreparation = await submitAddEmailIfNeeded(preparedState, visibleStep, pageState);
@@ -431,6 +456,10 @@
       }
       if (pageState?.state === 'phone_verification_page') {
         return executeLoginPhoneCodeStep(preparedState, authTabId, visibleStep);
+      }
+      if (pageState?.state === 'add_phone_page') {
+        await completeStep8WhenAuthAlreadyOnAddPhone(visibleStep, { url: pageState?.url || '' });
+        return;
       }
 
       const preparedStateLastResendAt = Number(preparedState?.loginVerificationRequestedAt) || 0;
@@ -484,6 +513,7 @@
         mail.provider === HOTMAIL_PROVIDER
         || mail.provider === LUCKMAIL_PROVIDER
         || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
+        || mail.provider === 'code-platform'
       ) {
         await addLog(`步骤 ${visibleStep}：正在通过 ${mail.label} 轮询验证码...`);
       } else {

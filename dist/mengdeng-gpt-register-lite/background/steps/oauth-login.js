@@ -52,7 +52,6 @@
     function canUseConfiguredPhoneSignup(state = {}) {
       return normalizeStep7SignupMethod(state?.signupMethod) === 'phone'
         && Boolean(state?.phoneVerificationEnabled)
-        && !Boolean(state?.plusModeEnabled)
         && !Boolean(state?.contributionMode);
     }
 
@@ -218,7 +217,18 @@
         } catch (err) {
           throwIfStopped(err);
           if (isAddPhoneAuthFailure(err)) {
-            throw err;
+            await addLog(
+              '提交账号密码后已进入手机号页面，说明登录阶段已通过，将跳过邮箱登录验证码并交给后续手机号验证步骤处理。',
+              'warn',
+              { step: completionStep, stepKey: 'oauth-login' }
+            );
+            await completeStepFromBackground(completionStep, {
+              loginVerificationRequestedAt: null,
+              skipLoginVerificationStep: true,
+              phoneVerificationRequired: true,
+              directAddPhonePage: true,
+            });
+            return;
           }
           if (isManagementSecretConfigError(err)) {
             await addLog(

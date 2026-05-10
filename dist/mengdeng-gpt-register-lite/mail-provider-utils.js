@@ -10,6 +10,7 @@
   }
 })(typeof self !== 'undefined' ? self : globalThis, function createMailProviderUtils() {
   const HOTMAIL_PROVIDER = 'hotmail-api';
+  const CODE_PLATFORM_PROVIDER = 'code-platform';
   const GMAIL_PROVIDER = 'gmail';
   const NETEASE_LIST_PATH = '/js6/main.jsp?df=mail163_letter#module=mbox.ListModule%7C%7B%22fid%22%3A1%2C%22order%22%3A%22date%22%2C%22desc%22%3Atrue%7D';
   const ICLOUD_TARGET_MAILBOX_TYPE_INBOX = 'icloud-inbox';
@@ -25,15 +26,12 @@
   function normalizeMailProvider(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
     switch (normalized) {
-      case HOTMAIL_PROVIDER:
-      case '163':
-      case '163-vip':
-      case '126':
+      case CODE_PLATFORM_PROVIDER:
       case 'qq':
-      case 'inbucket':
+      case '2925':
         return normalized;
       default:
-        return '163';
+        return 'qq';
     }
   }
 
@@ -73,8 +71,11 @@
     const provider = normalizeMailProvider(state.mailProvider);
     const normalizeInbucketOrigin = options.normalizeInbucketOrigin || (() => '');
 
-    if (provider === HOTMAIL_PROVIDER) {
-      return { provider: HOTMAIL_PROVIDER, label: 'Hotmail（微软 Graph）' };
+    if (provider === CODE_PLATFORM_PROVIDER) {
+      return { provider: CODE_PLATFORM_PROVIDER, label: '验证码平台' };
+    }
+    if (provider === '2925') {
+      return { provider: '2925', label: '2925 邮箱' };
     }
     if (provider === '163') {
       return {
@@ -121,6 +122,7 @@
   return {
     GMAIL_PROVIDER,
     HOTMAIL_PROVIDER,
+    CODE_PLATFORM_PROVIDER,
     getIcloudForwardMailConfig,
     getIcloudForwardMailProviderOptions,
     getMailProviderConfig,

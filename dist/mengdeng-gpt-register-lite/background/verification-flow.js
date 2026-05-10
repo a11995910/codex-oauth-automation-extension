@@ -17,6 +17,9 @@
       handleMail2925LimitReachedError,
       getState,
       getTabId,
+      CODE_PLATFORM_PROVIDER = 'code-platform',
+      CODE_PLATFORM_VERIFICATION_INTERVAL_MS = 3000,
+      CODE_PLATFORM_VERIFICATION_MAX_ATTEMPTS = 25,
       HOTMAIL_PROVIDER,
       isMail2925LimitReachedError,
       isStopError,
@@ -24,6 +27,7 @@
       MAIL_2925_VERIFICATION_INTERVAL_MS,
       MAIL_2925_VERIFICATION_MAX_ATTEMPTS,
       pollCloudflareTempEmailVerificationCode,
+      pollCodePlatformVerificationCode = async () => ({}),
       pollHotmailVerificationCode,
       pollLuckmailVerificationCode,
       sendToContentScript,
@@ -926,6 +930,16 @@
           ...cleanPollOverrides,
         }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
         return pollCloudflareTempEmailVerificationCode(step, state, timedPoll.payload);
+      }
+      if (mail.provider === CODE_PLATFORM_PROVIDER) {
+        const timedPoll = await applyMailPollingTimeBudget(step, {
+          ...getVerificationPollPayload(step, state),
+          filterAfterTimestamp: 0,
+          maxAttempts: CODE_PLATFORM_VERIFICATION_MAX_ATTEMPTS,
+          intervalMs: CODE_PLATFORM_VERIFICATION_INTERVAL_MS,
+          ...cleanPollOverrides,
+        }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码平台`);
+        return pollCodePlatformVerificationCode(step, state, timedPoll.payload);
       }
 
       if (Number(pollOverrides.resendIntervalMs) > 0) {
