@@ -132,6 +132,64 @@ test('builtin codex auth downloads json into a fixed Downloads subfolder', async
   assert.equal(downloadCalls[0].conflictAction, 'uniquify');
 });
 
+test('builtin codex auth downloads web access tokens as one batch text file', async () => {
+  const downloadCalls = [];
+  const auth = loadBuiltinCodexAuth({
+    chrome: {
+      downloads: {
+        download: async (payload) => {
+          downloadCalls.push(payload);
+          return 84;
+        },
+      },
+    },
+    now: () => new Date(2026, 4, 18, 9, 8, 7),
+  });
+
+  const downloadId = await auth.downloadWebAccessTokens([
+    ' web-token-a ',
+    '',
+    'web-token-b',
+  ], {
+    batchLabel: 'session:12',
+  });
+
+  assert.equal(downloadId, 84);
+  assert.equal(downloadCalls.length, 1);
+  assert.equal(
+    downloadCalls[0].filename,
+    'ChatGPT-Web-Access-Tokens/web-access-tokens-20260518-090807-session_12.txt'
+  );
+  assert.equal(downloadCalls[0].saveAs, false);
+  assert.equal(downloadCalls[0].conflictAction, 'overwrite');
+  assert.match(
+    decodeURIComponent(downloadCalls[0].url),
+    /^data:text\/plain;charset=utf-8,web-token-a\nweb-token-b\n$/
+  );
+});
+
+test('builtin codex auth reuses provided web access token batch filename', async () => {
+  const downloadCalls = [];
+  const auth = loadBuiltinCodexAuth({
+    chrome: {
+      downloads: {
+        download: async (payload) => {
+          downloadCalls.push(payload);
+          return 85;
+        },
+      },
+    },
+  });
+
+  await auth.downloadWebAccessTokens(['web-token-c'], {
+    fileName: 'batch.txt',
+    conflictAction: 'uniquify',
+  });
+
+  assert.equal(downloadCalls[0].filename, 'ChatGPT-Web-Access-Tokens/batch.txt');
+  assert.equal(downloadCalls[0].conflictAction, 'uniquify');
+});
+
 test('background imports builtin codex auth before panel bridge', () => {
   const source = fs.readFileSync('background.js', 'utf8');
   assert.match(source, /'background\/builtin-codex-auth\.js',\s*'background\/panel-bridge\.js'/);

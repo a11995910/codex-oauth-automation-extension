@@ -415,6 +415,14 @@
               autoRunDelayEnabled: prevState.autoRunDelayEnabled,
               autoRunDelayMinutes: prevState.autoRunDelayMinutes,
               autoStepDelaySeconds: prevState.autoStepDelaySeconds,
+              webAccessTokenRegisterEnabled: prevState.webAccessTokenRegisterEnabled,
+              webAccessTokenBatchId: prevState.webAccessTokenBatchId,
+              webAccessTokenBatchFileName: prevState.webAccessTokenBatchFileName,
+              webAccessTokenBatchTokens: Array.isArray(prevState.webAccessTokenBatchTokens)
+                ? prevState.webAccessTokenBatchTokens
+                : [],
+              webAccessTokenLastCollectedAt: prevState.webAccessTokenLastCollectedAt,
+              webAccessTokenLastSource: prevState.webAccessTokenLastSource,
               signupMethod: prevState.signupMethod,
               mailProvider: prevState.mailProvider,
               emailGenerator: prevState.emailGenerator,

@@ -418,9 +418,12 @@ function getStepDefinitionsForState(state = {}) {
   if (rootScope.MultiPageStepDefinitions?.getSteps) {
     return rootScope.MultiPageStepDefinitions.getSteps({
       signupMethod: getSignupMethodForStepDefinitions(state),
+      webAccessTokenRegisterEnabled: Boolean(state?.webAccessTokenRegisterEnabled),
     });
   }
-  return NORMAL_STEP_DEFINITIONS;
+  return Boolean(state?.webAccessTokenRegisterEnabled)
+    ? NORMAL_STEP_DEFINITIONS.filter((step) => Number(step?.id) <= 6)
+    : NORMAL_STEP_DEFINITIONS;
 }
 
 function getStepIdsForState(state = {}) {
@@ -532,6 +535,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunSkipFailures: false,
   autoRunFallbackThreadIntervalMinutes: 0,
   oauthFlowTimeoutEnabled: true,
+  webAccessTokenRegisterEnabled: false,
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
@@ -709,6 +713,11 @@ const DEFAULT_STATE = {
   autoRunAttemptRun: 0, // 当前轮次的重试序号。
   autoRunSessionId: 0,
   autoRunRoundSummaries: [], // 自动运行轮次摘要。
+  webAccessTokenBatchId: '',
+  webAccessTokenBatchFileName: '',
+  webAccessTokenBatchTokens: [],
+  webAccessTokenLastCollectedAt: 0,
+  webAccessTokenLastSource: '',
   scheduledAutoRunAt: null, // 自动运行计划启动时间戳。
   autoRunTimerPlan: null, // 自动运行可恢复计时计划快照。
   autoRunCountdownAt: null,
@@ -2079,6 +2088,7 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeSignupMethod(value);
     case 'autoRunSkipFailures':
     case 'oauthFlowTimeoutEnabled':
+    case 'webAccessTokenRegisterEnabled':
     case 'autoRunDelayEnabled':
     case 'step6CookieCleanupEnabled':
     case 'phoneVerificationEnabled':
@@ -8537,6 +8547,15 @@ async function runCompletedStepSideEffects(step, payload, completionState, lastS
   if (step === lastStepId) {
     const latestState = await getState();
     await appendAndBroadcastAccountRunRecord('success', resolveFinalAccountRunState(completionState, latestState));
+    if (latestState?.webAccessTokenRegisterEnabled) {
+      await markCurrentRegistrationAccountUsed(latestState, {
+        logPrefix: '网页 access token 模式完成',
+        level: 'ok',
+      });
+      if (typeof finalizePhoneActivationAfterSuccessfulFlow === 'function') {
+        await finalizePhoneActivationAfterSuccessfulFlow(latestState);
+      }
+    }
   }
 }
 
@@ -10302,6 +10321,7 @@ const step5Executor = self.MultiPageBackgroundStep5?.createStep5Executor({
 const step6Executor = self.MultiPageBackgroundStep6?.createStep6Executor({
   addLog,
   chrome,
+  collectAndDownloadWebAccessTokenBatch,
   completeStepFromBackground,
   getErrorMessage,
   registrationSuccessWaitMs: STEP6_REGISTRATION_SUCCESS_WAIT_MS,
@@ -10563,6 +10583,174 @@ async function ensureSignupPostEmailPageReadyInTab(tabId, step = 2, options = {}
 
 async function resolveSignupEmailForFlow(state) {
   return signupFlowHelpers.resolveSignupEmailForFlow(state);
+}
+
+function isChatgptWebSessionUrl(rawUrl = '') {
+  const parsed = parseUrlSafely(rawUrl);
+  if (!parsed) {
+    return false;
+  }
+  return isSignupEntryHost(parsed.hostname)
+    && !/^\/(?:auth\/|create-account\/|email-verification|log-in|add-phone)(?:[/?#]|$)/i.test(parsed.pathname || '');
+}
+
+async function ensureChatgptWebSessionTabReady(options = {}) {
+  const visibleStep = Math.max(1, Number(options.step) || 6);
+  let tabId = await getTabId('signup-page');
+  let navigatedToChatgpt = false;
+  if (tabId) {
+    try {
+      const currentTab = await chrome.tabs.get(tabId);
+      if (!isChatgptWebSessionUrl(currentTab?.url || '')) {
+        await chrome.tabs.update(tabId, { url: SIGNUP_ENTRY_URL, active: true });
+        navigatedToChatgpt = true;
+        await waitForTabStableComplete(tabId, {
+          timeoutMs: 45000,
+          retryDelayMs: 300,
+          stableMs: 1000,
+          initialDelayMs: 600,
+        });
+      } else {
+        await chrome.tabs.update(tabId, { active: true });
+      }
+    } catch {
+      tabId = null;
+    }
+  }
+
+  if (!tabId) {
+    navigatedToChatgpt = true;
+    tabId = await reuseOrCreateTab('signup-page', SIGNUP_ENTRY_URL, {
+      inject: SIGNUP_PAGE_INJECT_FILES,
+      injectSource: 'signup-page',
+    });
+  }
+
+  await waitForTabStableComplete(tabId, {
+    timeoutMs: 45000,
+    retryDelayMs: 300,
+    stableMs: 1000,
+    initialDelayMs: 600,
+  });
+  await ensureContentScriptReadyOnTab('signup-page', tabId, {
+    inject: SIGNUP_PAGE_INJECT_FILES,
+    injectSource: 'signup-page',
+    timeoutMs: 45000,
+    retryDelayMs: 900,
+    logMessage: `步骤 ${visibleStep}：ChatGPT 网页仍在加载，正在等待 access token 采集脚本就绪...`,
+    logStep: visibleStep,
+    logStepKey: 'wait-registration-success',
+  });
+  if (navigatedToChatgpt) {
+    await sleepWithStop(2500);
+  }
+  return tabId;
+}
+
+function normalizeWebAccessTokenBatchTokens(tokens = []) {
+  const seen = new Set();
+  const normalized = [];
+  for (const token of Array.isArray(tokens) ? tokens : []) {
+    const value = String(token || '').trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function resolveWebAccessTokenBatchId(state = {}) {
+  const sessionId = Math.max(0, Math.floor(Number(state?.autoRunSessionId) || 0));
+  if (sessionId) {
+    return `session-${sessionId}`;
+  }
+  const flowStartedAt = Math.max(0, Math.floor(Number(state?.flowStartTime) || 0));
+  return flowStartedAt ? `manual-${flowStartedAt}` : `manual-${Date.now()}`;
+}
+
+async function getWebAccessTokenBatchState(state = {}) {
+  const latestState = await getState();
+  const batchId = resolveWebAccessTokenBatchId({
+    ...latestState,
+    ...state,
+  });
+  const existingBatchId = String(latestState.webAccessTokenBatchId || '').trim();
+  const existingFileName = String(latestState.webAccessTokenBatchFileName || '').trim();
+  if (existingBatchId === batchId) {
+    return {
+      batchId,
+      fileName: existingFileName || builtinCodexAuth.buildWebAccessTokenBatchFileName({ batchLabel: batchId }),
+      tokens: normalizeWebAccessTokenBatchTokens(latestState.webAccessTokenBatchTokens),
+    };
+  }
+
+  const fileName = builtinCodexAuth.buildWebAccessTokenBatchFileName({
+    batchLabel: batchId,
+  });
+  return {
+    batchId,
+    fileName,
+    tokens: [],
+  };
+}
+
+async function collectAndDownloadWebAccessTokenBatch(state = {}) {
+  if (!builtinCodexAuth?.downloadWebAccessTokens) {
+    throw new Error('网页 access token 下载处理器未加载，请重新加载扩展后重试。');
+  }
+
+  await addLog('步骤 6：网页 access token 注册模式已开启，正在进入 ChatGPT 网页会话并采集 token...', 'info', {
+    step: 6,
+    stepKey: 'wait-registration-success',
+  });
+
+  await ensureChatgptWebSessionTabReady({ step: 6 });
+  const response = await sendToContentScriptResilient('signup-page', {
+    type: 'COLLECT_WEB_ACCESS_TOKEN',
+    source: 'background',
+    payload: {
+      timeoutMs: 45000,
+    },
+  }, {
+    timeoutMs: 60000,
+    responseTimeoutMs: 60000,
+    retryDelayMs: 1000,
+    logMessage: '步骤 6：ChatGPT 网页 token 采集脚本暂未响应，正在重试...',
+    logStep: 6,
+    logStepKey: 'wait-registration-success',
+  });
+
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+
+  const accessToken = String(response?.accessToken || '').trim();
+  if (!accessToken) {
+    throw new Error('未采集到网页 access token。');
+  }
+
+  const batchState = await getWebAccessTokenBatchState(state);
+  const tokens = normalizeWebAccessTokenBatchTokens([
+    ...batchState.tokens,
+    accessToken,
+  ]);
+  await builtinCodexAuth.downloadWebAccessTokens(tokens, {
+    fileName: batchState.fileName,
+    conflictAction: 'overwrite',
+  });
+  await setState({
+    webAccessTokenBatchId: batchState.batchId,
+    webAccessTokenBatchFileName: batchState.fileName,
+    webAccessTokenBatchTokens: tokens,
+    webAccessTokenLastCollectedAt: Date.now(),
+    webAccessTokenLastSource: String(response?.source || '').trim(),
+  });
+  await addLog('步骤 6：网页 access token 已写入当前批次下载文件。', 'ok', {
+    step: 6,
+    stepKey: 'wait-registration-success',
+  });
 }
 
 // ============================================================

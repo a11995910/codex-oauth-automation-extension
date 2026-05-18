@@ -99,6 +99,7 @@
     const {
       addLog = async () => {},
       chrome: chromeApi = globalThis.chrome,
+      collectAndDownloadWebAccessTokenBatch,
       completeStepFromBackground,
       getErrorMessage = (error) => error?.message || String(error || '未知错误'),
       registrationSuccessWaitMs = DEFAULT_REGISTRATION_SUCCESS_WAIT_MS,
@@ -147,8 +148,19 @@
         await addLog(`步骤 6：等待 ${Math.round(waitMs / 1000)} 秒，确认注册成功并让页面稳定...`, 'info');
         await sleepWithStop(waitMs);
       }
+      if (state?.webAccessTokenRegisterEnabled) {
+        if (typeof collectAndDownloadWebAccessTokenBatch !== 'function') {
+          throw new Error('网页 access token 采集处理器未加载，请重新加载扩展后重试。');
+        }
+        await collectAndDownloadWebAccessTokenBatch(state);
+      }
       await clearCookiesIfEnabled(state);
-      await addLog('步骤 6：注册成功等待完成，准备继续获取 OAuth 链接并登录。', 'ok');
+      await addLog(
+        state?.webAccessTokenRegisterEnabled
+          ? '步骤 6：网页 access token 已采集完成，本轮到此结束。'
+          : '步骤 6：注册成功等待完成，准备继续获取 OAuth 链接并登录。',
+        'ok'
+      );
       await completeStepFromBackground(6);
     }
 

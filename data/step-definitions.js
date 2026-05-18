@@ -37,6 +37,9 @@
   }
 
   function getResolvedStepTitle(step = {}, options = {}) {
+    if (options?.webAccessTokenRegisterEnabled && step.key === 'wait-registration-success') {
+      return '下载网页 AccessToken';
+    }
     const signupMethod = getResolvedSignupMethod(options);
     if (signupMethod === SIGNUP_METHOD_PHONE && PHONE_SIGNUP_TITLE_OVERRIDES[step.key]) {
       return PHONE_SIGNUP_TITLE_OVERRIDES[step.key];
@@ -52,7 +55,11 @@
   }
 
   function getSteps(options = {}) {
-    return cloneSteps(getModeStepDefinitions(options), options);
+    const steps = getModeStepDefinitions(options);
+    if (options?.webAccessTokenRegisterEnabled) {
+      return cloneSteps(steps.filter((step) => step.id <= 6), options);
+    }
+    return cloneSteps(steps, options);
   }
 
   function getAllSteps() {
@@ -69,7 +76,7 @@
   }
 
   function getStepIds(options = {}) {
-    return getModeStepDefinitions(options)
+    return getSteps(options)
       .map((step) => Number(step.id))
       .filter(Number.isFinite)
       .sort((left, right) => left - right);
@@ -82,7 +89,7 @@
 
   function getStepById(id, options = {}) {
     const numericId = Number(id);
-    const match = getModeStepDefinitions(options).find((step) => step.id === numericId);
+    const match = getSteps(options).find((step) => step.id === numericId);
     return match ? cloneSteps([match], options)[0] : null;
   }
 

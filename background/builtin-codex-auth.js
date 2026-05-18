@@ -7,6 +7,7 @@
   const CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
   const CODEX_SCOPE = 'openid email profile offline_access';
   const CODEX_DOWNLOAD_DIR = 'Codex-OAuth-JSON';
+  const WEB_ACCESS_TOKEN_DOWNLOAD_DIR = 'ChatGPT-Web-Access-Tokens';
 
   function createBuiltinCodexAuth(deps = {}) {
     const {
@@ -273,6 +274,42 @@
       return `${CODEX_DOWNLOAD_DIR}/${normalizeDownloadFileName(fileName)}`;
     }
 
+    function padDatePart(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function formatBatchTimestamp(date = now()) {
+      const current = date instanceof Date && !Number.isNaN(date.getTime())
+        ? date
+        : new Date();
+      return [
+        current.getFullYear(),
+        padDatePart(current.getMonth() + 1),
+        padDatePart(current.getDate()),
+        '-',
+        padDatePart(current.getHours()),
+        padDatePart(current.getMinutes()),
+        padDatePart(current.getSeconds()),
+      ].join('');
+    }
+
+    function buildWebAccessTokenBatchFileName(options = {}) {
+      const batchLabel = String(options.batchLabel || '').trim();
+      const timestamp = formatBatchTimestamp(options.date instanceof Date ? options.date : now());
+      const normalizedLabel = batchLabel
+        ? batchLabel.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '')
+        : '';
+      const suffix = normalizedLabel
+        ? `-${normalizedLabel}`
+        : '';
+      return `web-access-tokens-${timestamp}${suffix}.txt`;
+    }
+
+    function buildWebAccessTokenDownloadPath(fileName = '') {
+      const normalizedFileName = normalizeDownloadFileName(fileName || buildWebAccessTokenBatchFileName());
+      return `${WEB_ACCESS_TOKEN_DOWNLOAD_DIR}/${normalizedFileName}`;
+    }
+
     async function downloadAuthJson(fileName, authJson) {
       const normalizedFileName = normalizeDownloadFileName(fileName);
       const downloadPath = buildDownloadPath(normalizedFileName);
@@ -302,6 +339,47 @@
       throw new Error('当前环境不支持自动下载 Codex OAuth JSON。');
     }
 
+    async function downloadWebAccessTokens(tokens = [], options = {}) {
+      const lines = Array.isArray(tokens)
+        ? tokens.map((token) => String(token || '').trim()).filter(Boolean)
+        : [];
+      if (!lines.length) {
+        throw new Error('网页 access token 下载内容为空。');
+      }
+
+      const fileName = String(options.fileName || '').trim()
+        ? normalizeDownloadFileName(options.fileName)
+        : buildWebAccessTokenBatchFileName(options);
+      const downloadPath = buildWebAccessTokenDownloadPath(fileName);
+      const content = `${lines.join('\n')}\n`;
+      const dataUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`;
+      const conflictAction = ['overwrite', 'prompt', 'uniquify'].includes(options.conflictAction)
+        ? options.conflictAction
+        : 'overwrite';
+      if (chrome?.downloads?.download) {
+        return chrome.downloads.download({
+          url: dataUrl,
+          filename: downloadPath,
+          saveAs: false,
+          conflictAction,
+        });
+      }
+
+      if (chrome?.runtime?.sendMessage) {
+        await chrome.runtime.sendMessage({
+          type: 'WEB_ACCESS_TOKENS_READY',
+          source: 'background',
+          payload: {
+            fileName: downloadPath,
+            fileContent: content,
+          },
+        });
+        return null;
+      }
+
+      throw new Error('当前环境不支持自动下载网页 access token。');
+    }
+
     return {
       CODEX_AUTH_URL,
       CODEX_CLIENT_ID,
@@ -309,11 +387,15 @@
       CODEX_REDIRECT_URI,
       CODEX_SCOPE,
       CODEX_TOKEN_URL,
+      WEB_ACCESS_TOKEN_DOWNLOAD_DIR,
       buildCodexAuthJson,
       buildCodexAuthUrl,
       buildCredentialFileName,
+      buildWebAccessTokenBatchFileName,
+      buildWebAccessTokenDownloadPath,
       createOAuthSession,
       downloadAuthJson,
+      downloadWebAccessTokens,
       exchangeCodeForTokens,
       generatePkceCodes,
       generateState,

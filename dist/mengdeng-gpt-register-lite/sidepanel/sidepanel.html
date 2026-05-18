@@ -459,6 +459,20 @@
           <button id="btn-save-settings" class="btn btn-outline btn-sm data-inline-btn" type="button">保存</button>
         </div>
       </div>
+      <div class="data-row web-access-token-row">
+        <span class="data-label">网页Token</span>
+        <div class="data-inline web-access-token-inline">
+          <label class="toggle-switch web-access-token-toggle" for="input-web-access-token-register-enabled"
+            title="开启后只执行到网页账号注册完成，并将网页 access token 按当前批次下载为 txt 文件">
+            <input type="checkbox" id="input-web-access-token-register-enabled" />
+            <span class="toggle-switch-track" aria-hidden="true">
+              <span class="toggle-switch-thumb"></span>
+            </span>
+            <span>网页 access token 注册</span>
+          </label>
+          <span class="setting-caption web-access-token-caption">开启后 Step 6 结束本轮</span>
+        </div>
+      </div>
     </div>
     <div id="cloudflare-temp-email-section" class="data-card hotmail-card" style="display:none;">
       <div class="section-mini-header">

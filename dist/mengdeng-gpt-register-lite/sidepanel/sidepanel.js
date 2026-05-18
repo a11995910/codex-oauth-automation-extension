@@ -341,6 +341,7 @@ const inputAutoDelayEnabled = document.getElementById('input-auto-delay-enabled'
 const inputAutoDelayMinutes = document.getElementById('input-auto-delay-minutes');
 const inputAutoStepDelaySeconds = document.getElementById('input-auto-step-delay-seconds');
 const inputOAuthFlowTimeoutEnabled = document.getElementById('input-oauth-flow-timeout-enabled');
+const inputWebAccessTokenRegisterEnabled = document.getElementById('input-web-access-token-register-enabled');
 const inputVerificationResendCount = document.getElementById('input-verification-resend-count');
 const rowPhoneVerificationEnabled = document.getElementById('row-phone-verification-enabled');
 const btnTogglePhoneVerificationSection = document.getElementById('btn-toggle-phone-verification-section');
@@ -747,8 +748,12 @@ function getStepDefinitionsForMode(options = {}) {
   const rawSignupMethod = typeof options === 'string'
     ? currentSignupMethod
     : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const webAccessTokenRegisterEnabled = typeof options === 'object' && Object.prototype.hasOwnProperty.call(options, 'webAccessTokenRegisterEnabled')
+    ? Boolean(options.webAccessTokenRegisterEnabled)
+    : Boolean(latestState?.webAccessTokenRegisterEnabled);
   return (window.MultiPageStepDefinitions?.getSteps?.({
     signupMethod: normalizeSignupMethod(rawSignupMethod),
+    webAccessTokenRegisterEnabled,
   }) || [])
     .sort((left, right) => {
       const leftOrder = Number.isFinite(left.order) ? left.order : left.id;
@@ -762,9 +767,13 @@ function rebuildStepDefinitionState(options = {}) {
   const rawSignupMethod = typeof options === 'string'
     ? currentSignupMethod
     : (options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const webAccessTokenRegisterEnabled = typeof options === 'object' && Object.prototype.hasOwnProperty.call(options, 'webAccessTokenRegisterEnabled')
+    ? Boolean(options.webAccessTokenRegisterEnabled)
+    : Boolean(latestState?.webAccessTokenRegisterEnabled);
   currentSignupMethod = normalizeSignupMethod(rawSignupMethod);
   stepDefinitions = getStepDefinitionsForMode({
     signupMethod: currentSignupMethod,
+    webAccessTokenRegisterEnabled,
   });
   STEP_IDS = stepDefinitions.map((step) => Number(step.id)).filter(Number.isFinite);
   STEP_DEFAULT_STATUSES = Object.fromEntries(STEP_IDS.map((stepId) => [stepId, 'pending']));
@@ -3116,6 +3125,9 @@ function collectSettingsPayload() {
     oauthFlowTimeoutEnabled: typeof inputOAuthFlowTimeoutEnabled !== 'undefined' && inputOAuthFlowTimeoutEnabled
       ? Boolean(inputOAuthFlowTimeoutEnabled.checked)
       : true,
+    webAccessTokenRegisterEnabled: typeof inputWebAccessTokenRegisterEnabled !== 'undefined' && inputWebAccessTokenRegisterEnabled
+      ? Boolean(inputWebAccessTokenRegisterEnabled.checked)
+      : false,
     phoneVerificationEnabled: Boolean(inputPhoneVerificationEnabled?.checked),
     signupMethod: selectedSignupMethod,
     phoneSmsProvider: phoneSmsProviderValue,
@@ -7389,14 +7401,25 @@ function renderStepsList() {
 
 function syncStepDefinitionsForMode(options = {}) {
   const nextSignupMethod = normalizeSignupMethod(options.signupMethod || currentSignupMethod || DEFAULT_SIGNUP_METHOD);
+  const nextWebAccessTokenRegisterEnabled = Object.prototype.hasOwnProperty.call(options, 'webAccessTokenRegisterEnabled')
+    ? Boolean(options.webAccessTokenRegisterEnabled)
+    : Boolean(latestState?.webAccessTokenRegisterEnabled);
+  const currentWebAccessTokenRegisterEnabled = Boolean(latestState?.webAccessTokenRegisterEnabled);
+  const activeStepIds = (window.MultiPageStepDefinitions?.getStepIds?.({
+    signupMethod: nextSignupMethod,
+    webAccessTokenRegisterEnabled: nextWebAccessTokenRegisterEnabled,
+  }) || []);
   const shouldRender = Boolean(options.render)
-    || nextSignupMethod !== currentSignupMethod;
+    || nextSignupMethod !== currentSignupMethod
+    || nextWebAccessTokenRegisterEnabled !== currentWebAccessTokenRegisterEnabled
+    || activeStepIds.join(',') !== STEP_IDS.join(',');
   if (!shouldRender) {
     return;
   }
 
   rebuildStepDefinitionState({
     signupMethod: nextSignupMethod,
+    webAccessTokenRegisterEnabled: nextWebAccessTokenRegisterEnabled,
   });
   renderStepsList();
 }
@@ -7406,8 +7429,12 @@ function syncStepDefinitionsForMode(options = {}) {
 // ============================================================
 
 function applySettingsState(state) {
+  syncLatestState(state || {});
   if (typeof syncStepDefinitionsForMode === 'function') {
-    syncStepDefinitionsForMode({ signupMethod: state?.signupMethod });
+    syncStepDefinitionsForMode({
+      signupMethod: state?.signupMethod,
+      webAccessTokenRegisterEnabled: state?.webAccessTokenRegisterEnabled,
+    });
   }
   const fallbackIpProxyService = '711proxy';
   const fallbackIpProxyMode = 'account';
@@ -7647,6 +7674,9 @@ function applySettingsState(state) {
     inputOAuthFlowTimeoutEnabled.checked = state?.oauthFlowTimeoutEnabled !== undefined
       ? Boolean(state.oauthFlowTimeoutEnabled)
       : true;
+  }
+  if (typeof inputWebAccessTokenRegisterEnabled !== 'undefined' && inputWebAccessTokenRegisterEnabled) {
+    inputWebAccessTokenRegisterEnabled.checked = Boolean(state?.webAccessTokenRegisterEnabled);
   }
   if (inputVerificationResendCount) {
     const restoredVerificationResendCount = state?.verificationResendCount !== undefined
@@ -11614,6 +11644,23 @@ inputStep6CookieCleanupEnabled?.addEventListener('change', () => {
   saveSettings({ silent: true }).catch(() => { });
 });
 
+inputOAuthFlowTimeoutEnabled?.addEventListener('change', () => {
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputWebAccessTokenRegisterEnabled?.addEventListener('change', () => {
+  const enabled = Boolean(inputWebAccessTokenRegisterEnabled.checked);
+  syncLatestState({ webAccessTokenRegisterEnabled: enabled });
+  syncStepDefinitionsForMode({
+    signupMethod: latestState?.signupMethod,
+    webAccessTokenRegisterEnabled: enabled,
+    render: true,
+  });
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
 inputAutoDelayMinutes.addEventListener('input', () => {
   markSettingsDirty(true);
   scheduleSettingsAutoSave();
@@ -12348,6 +12395,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
     }
 
+    case 'WEB_ACCESS_TOKENS_READY': {
+      const fileName = String(message.payload?.fileName || 'web-access-tokens.txt').trim();
+      const fileContent = String(message.payload?.fileContent || '');
+      if (fileName && fileContent) {
+        downloadTextFile(fileContent, fileName, 'text/plain;charset=utf-8');
+        showToast(`网页 access token 已生成：${fileName}`, 'success', 2200);
+        sendResponse({ ok: true });
+      } else {
+        sendResponse({ error: '网页 access token 下载内容缺失。' });
+      }
+      return true;
+    }
+
     case 'SECURITY_BLOCKED_ALERT': {
       openConfirmModal({
         title: message.payload?.title || '流程已完全停止',
@@ -12764,6 +12824,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.payload.oauthFlowTimeoutEnabled !== undefined && typeof inputOAuthFlowTimeoutEnabled !== 'undefined' && inputOAuthFlowTimeoutEnabled) {
         inputOAuthFlowTimeoutEnabled.checked = Boolean(message.payload.oauthFlowTimeoutEnabled);
+      }
+      if (message.payload.webAccessTokenRegisterEnabled !== undefined && typeof inputWebAccessTokenRegisterEnabled !== 'undefined' && inputWebAccessTokenRegisterEnabled) {
+        inputWebAccessTokenRegisterEnabled.checked = Boolean(message.payload.webAccessTokenRegisterEnabled);
+        syncStepDefinitionsForMode({
+          signupMethod: latestState?.signupMethod,
+          webAccessTokenRegisterEnabled: Boolean(message.payload.webAccessTokenRegisterEnabled),
+        });
       }
       if (
         (

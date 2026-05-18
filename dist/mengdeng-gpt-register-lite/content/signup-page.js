@@ -38,6 +38,7 @@ if (document.documentElement.getAttribute(SIGNUP_PAGE_LISTENER_SENTINEL) !== '1'
       || message.type === 'ENSURE_SIGNUP_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PHONE_ENTRY_READY'
       || message.type === 'ENSURE_SIGNUP_PASSWORD_PAGE_READY'
+      || message.type === 'COLLECT_WEB_ACCESS_TOKEN'
     ) {
       resetStopState();
       handleCommand(message).then((result) => {
@@ -119,6 +120,8 @@ async function handleCommand(message) {
       return await ensureSignupPhoneEntryReady();
     case 'ENSURE_SIGNUP_PASSWORD_PAGE_READY':
       return await ensureSignupPasswordPageReady();
+    case 'COLLECT_WEB_ACCESS_TOKEN':
+      return await collectWebAccessToken(message.payload);
     case 'STEP8_FIND_AND_CLICK':
       return await step8_findAndClick(message.payload);
     case 'STEP8_GET_STATE':
@@ -6510,6 +6513,139 @@ function getStep5PostSubmitSuccessState() {
   }
 
   return null;
+}
+
+function normalizeWebAccessToken(value = '') {
+  return String(value || '').trim();
+}
+
+function isValidWebAccessToken(value = '') {
+  const token = normalizeWebAccessToken(value);
+  return token.length >= 20 && !/\s/.test(token);
+}
+
+function getWebAccessTokenFromObject(value, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) {
+    return '';
+  }
+  seen.add(value);
+
+  const directKeys = ['accessToken', 'access_token', 'token', 'jwt'];
+  for (const key of directKeys) {
+    const direct = normalizeWebAccessToken(value[key]);
+    if (isValidWebAccessToken(direct)) {
+      return direct;
+    }
+  }
+
+  for (const nestedKey of ['auth', 'session', 'user', 'data']) {
+    const nested = getWebAccessTokenFromObject(value[nestedKey], seen);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return '';
+}
+
+async function fetchWebAccessTokenFromSessionApi() {
+  const endpoints = [
+    'https://chatgpt.com/api/auth/session',
+    'https://chat.openai.com/api/auth/session',
+  ];
+
+  let lastError = '';
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        lastError = `${endpoint} HTTP ${response.status}`;
+        continue;
+      }
+      let payload = null;
+      try {
+        payload = JSON.parse(text || '{}');
+      } catch {
+        lastError = `${endpoint} 返回内容不是有效 JSON`;
+        continue;
+      }
+      const token = getWebAccessTokenFromObject(payload);
+      if (token) {
+        return {
+          accessToken: token,
+          source: endpoint,
+        };
+      }
+      lastError = `${endpoint} 响应中没有 accessToken 字段`;
+    } catch (error) {
+      lastError = `${endpoint} 请求失败：${error?.message || error}`;
+    }
+  }
+
+  throw new Error(lastError || '未能从 ChatGPT session 接口读取 access token。');
+}
+
+function getWebAccessTokenFromWindowState() {
+  const candidates = [];
+  try {
+    candidates.push(window?.__NEXT_DATA__?.props?.pageProps);
+  } catch {}
+  try {
+    candidates.push(window?.__remixContext);
+  } catch {}
+  try {
+    candidates.push(window?.__reactRouterContext);
+  } catch {}
+
+  for (const candidate of candidates) {
+    const token = getWebAccessTokenFromObject(candidate);
+    if (token) {
+      return token;
+    }
+  }
+
+  return '';
+}
+
+async function collectWebAccessToken(payload = {}) {
+  const timeoutMs = Math.max(3000, Math.floor(Number(payload?.timeoutMs) || 45000));
+  const startedAt = Date.now();
+  let lastError = '';
+
+  while (Date.now() - startedAt < timeoutMs) {
+    throwIfStopped();
+
+    const inlineToken = getWebAccessTokenFromWindowState();
+    if (inlineToken) {
+      return {
+        accessToken: inlineToken,
+        source: 'window-state',
+        url: location.href,
+      };
+    }
+
+    try {
+      const result = await fetchWebAccessTokenFromSessionApi();
+      return {
+        ...result,
+        url: location.href,
+      };
+    } catch (error) {
+      lastError = error?.message || String(error || '');
+    }
+
+    await sleep(1000);
+  }
+
+  throw new Error(`获取网页 access token 超时。${lastError ? `最后原因：${lastError}` : `当前地址：${location.href}`}`);
 }
 
 function installStep5NavigationCompletionReporter(completeOnce) {

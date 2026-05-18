@@ -1958,6 +1958,26 @@ header {
   text-overflow: ellipsis;
 }
 
+.web-access-token-row {
+  min-height: 34px;
+}
+
+.web-access-token-inline {
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.web-access-token-toggle {
+  min-width: 0;
+}
+
+.web-access-token-caption {
+  min-width: 0 !important;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 #row-auto-delay-settings .setting-caption {
   min-width: auto;
 }
