@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT 注册机</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f1117; color: #e1e4e8; min-height: 100vh; padding: 20px;
+}
+.container { max-width: 780px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #fff; }
+
+.card {
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+  padding: 16px; margin-bottom: 16px;
+}
+.card-title { font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px; }
+
+.form-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+.form-group label { font-size: 12px; color: #8b949e; }
+.form-group input {
+  background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+  color: #c9d1d9; padding: 7px 10px; font-size: 13px; outline: none;
+}
+.form-group input:focus { border-color: #58a6ff; }
+
+.btn {
+  padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: 1px solid transparent; transition: 0.15s;
+}
+.btn-green { background: #238636; color: #fff; border-color: #2ea043; }
+.btn-green:hover { background: #2ea043; }
+.btn-green:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-red { background: #da3633; color: #fff; border-color: #f85149; }
+.btn-red:hover { background: #f85149; }
+.btn-red:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-gray { background: #21262d; color: #c9d1d9; border-color: #30363d; }
+.btn-gray:hover { background: #30363d; }
+
+.status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.status-idle { background: #21262d; color: #8b949e; }
+.status-running { background: #1b3823; color: #3fb950; }
+.status-stopped { background: #3a1f1f; color: #f85149; }
+
+.progress-wrap { margin: 12px 0; }
+.progress-bar {
+  height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; margin-bottom: 6px;
+}
+.progress-fill {
+  height: 100%; background: #238636; border-radius: 4px; transition: width 0.3s;
+}
+.progress-text { font-size: 12px; color: #8b949e; }
+
+.log-container {
+  background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+  height: 320px; overflow-y: auto; padding: 10px;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6;
+}
+.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-info { color: #c9d1d9; }
+.log-ok { color: #3fb950; }
+.log-warn { color: #d29922; }
+.log-error { color: #f85149; }
+
+.accounts-list { max-height: 200px; overflow-y: auto; font-size: 12px; }
+.account-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid #21262d;
+}
+.account-item:last-child { border-bottom: none; }
+.account-email { color: #58a6ff; font-family: monospace; }
+.account-status { font-size: 11px; }
+.account-ok { color: #3fb950; }
+.account-fail { color: #f85149; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>ChatGPT 注册机</h1>
+
+  <!-- config -->
+  <div class="card">
+    <div class="card-title">配置</div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label>验证码平台地址</label>
+        <input id="cfg-code-url" placeholder="https://code.youkeduo.site">
+      </div>
+      <div class="form-group">
+        <label>API Key（可选）</label>
+        <input id="cfg-api-key" type="password" placeholder="平台鉴权密钥">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>并行线程数</label>
+        <input id="cfg-threads" type="number" min="1" max="10" value="1">
+      </div>
+      <div class="form-group">
+        <label>注册数量</label>
+        <input id="cfg-count" type="number" min="1" max="100" value="1">
+      </div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-gray" id="btn-save-config">保存配置</button>
+      <button class="btn btn-gray" id="btn-load-config">加载配置</button>
+    </div>
+  </div>
+
+  <!-- controls -->
+  <div class="card">
+    <div class="card-title">控制</div>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+      <button class="btn btn-green" id="btn-start">开始注册</button>
+      <button class="btn btn-red" id="btn-stop" disabled>停止</button>
+      <span class="status-badge status-idle" id="status-badge">空闲</span>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      <div class="progress-text" id="progress-text">就绪</div>
+    </div>
+  </div>
+
+  <!-- log -->
+  <div class="card">
+    <div class="card-title" style="display:flex; justify-content:space-between;">
+      <span>运行日志</span>
+      <button class="btn btn-gray" id="btn-clear-log" style="padding:2px 8px; font-size:11px;">清空</button>
+    </div>
+    <div class="log-container" id="log-container"></div>
+  </div>
+
+  <!-- completed accounts -->
+  <div class="card">
+    <div class="card-title">已注册账号</div>
+    <div class="accounts-list" id="accounts-list">
+      <div style="color:#8b949e; font-size:12px; padding:8px;">暂无</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- DOM ----
+const $ = (id) => document.getElementById(id);
+const cfgCodeUrl = $('cfg-code-url');
+const cfgApiKey = $('cfg-api-key');
+const cfgThreads = $('cfg-threads');
+const cfgCount = $('cfg-count');
+const btnStart = $('btn-start');
+const btnStop = $('btn-stop');
+const statusBadge = $('status-badge');
+const progressFill = $('progress-fill');
+const progressText = $('progress-text');
+const logContainer = $('log-container');
+const accountsList = $('accounts-list');
+
+// ---- helpers ----
+function addLog(level, message) {
+  const div = document.createElement('div');
+  div.className = `log-line log-${level}`;
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  div.textContent = `[${ts}] ${message}`;
+  logContainer.appendChild(div);
+  logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function setStatus(status) {
+  statusBadge.className = 'status-badge';
+  if (status === 'running') {
+    statusBadge.classList.add('status-running');
+    statusBadge.textContent = '运行中';
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+  } else if (status === 'stopped') {
+    statusBadge.classList.add('status-stopped');
+    statusBadge.textContent = '已停止';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+  } else {
+    statusBadge.classList.add('status-idle');
+    statusBadge.textContent = '空闲';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+  }
+}
+
+const savedAccounts = [];
+
+function addAccountItem(email, success) {
+  savedAccounts.push({ email, success });
+  if (savedAccounts.length === 1 && accountsList.children[0]?.textContent === '暂无') {
+    accountsList.innerHTML = '';
+  }
+  const div = document.createElement('div');
+  div.className = 'account-item';
+  div.innerHTML = `
+    <span class="account-email">${email}</span>
+    <span class="account-status ${success ? 'account-ok' : 'account-fail'}">${success ? 'OK' : 'FAIL'}</span>
+  `;
+  accountsList.insertBefore(div, accountsList.firstChild);
+}
+
+// ---- SSE ----
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('connected', () => {
+    addLog('info', '已连接到服务器');
+  });
+  es.addEventListener('log', (e) => {
+    const { level, message } = JSON.parse(e.data);
+    addLog(level, message);
+  });
+  es.addEventListener('status', (e) => {
+    const { status, total, completed, failed } = JSON.parse(e.data);
+    setStatus(status);
+    const pct = total > 0 ? Math.round((completed + failed) / total * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressText.textContent = `进度：${completed + failed} / ${total}（成功 ${completed}，失败 ${failed}）`;
+  });
+  es.addEventListener('progress', (e) => {
+    const { completed, failed, total } = JSON.parse(e.data);
+    const pct = total > 0 ? Math.round((completed + failed) / total * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressText.textContent = `进度：${completed + failed} / ${total}（成功 ${completed}，失败 ${failed}）`;
+  });
+  es.addEventListener('account_saved', (e) => {
+    const data = JSON.parse(e.data);
+    addAccountItem(data.email, true);
+  });
+  es.onerror = () => {
+    // will auto-reconnect
+  };
+  return es;
+}
+
+// ---- API calls ----
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+// ---- event handlers ----
+btnStart.addEventListener('click', async () => {
+  const count = parseInt(cfgCount.value) || 1;
+  const threads = parseInt(cfgThreads.value) || 1;
+  const codePlatformBaseUrl = cfgCodeUrl.value.trim();
+  const codePlatformApiKey = cfgApiKey.value.trim();
+  try {
+    addLog('info', `正在启动注册任务（数量：${count}，线程：${threads}）...`);
+    const result = await api('POST', '/api/start', { count, threads, codePlatformBaseUrl, codePlatformApiKey });
+    if (result.error) {
+      addLog('error', result.error);
+    }
+  } catch (err) {
+    addLog('error', '启动失败：' + err.message);
+  }
+});
+
+btnStop.addEventListener('click', async () => {
+  try {
+    await api('POST', '/api/stop');
+  } catch (err) {
+    addLog('error', '停止失败：' + err.message);
+  }
+});
+
+$('btn-save-config').addEventListener('click', async () => {
+  const cfg = {
+    codePlatformBaseUrl: cfgCodeUrl.value.trim(),
+    codePlatformApiKey: cfgApiKey.value.trim(),
+    parallelThreads: parseInt(cfgThreads.value) || 1,
+  };
+  await api('POST', '/api/config', cfg);
+  addLog('ok', '配置已保存');
+});
+
+$('btn-load-config').addEventListener('click', async () => {
+  try {
+    const cfg = await api('GET', '/api/config');
+    cfgCodeUrl.value = cfg.codePlatformBaseUrl || 'https://code.youkeduo.site';
+    cfgApiKey.value = cfg.codePlatformApiKey || '';
+    cfgThreads.value = cfg.parallelThreads || 1;
+    addLog('ok', '配置已加载');
+  } catch (err) {
+    addLog('error', '加载配置失败：' + err.message);
+  }
+});
+
+$('btn-clear-log').addEventListener('click', () => {
+  logContainer.innerHTML = '';
+});
+
+// ---- init ----
+(async () => {
+  try {
+    const cfg = await api('GET', '/api/config');
+    cfgCodeUrl.value = cfg.codePlatformBaseUrl || 'https://code.youkeduo.site';
+    cfgApiKey.value = cfg.codePlatformApiKey || '';
+    cfgThreads.value = cfg.parallelThreads || 1;
+  } catch { /* defaults */ }
+  connectSSE();
+  addLog('info', '注册机已就绪');
+})();
+</script>
+</body>
+</html>

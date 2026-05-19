@@ -1,0 +1,13 @@
+{
+  "name": "chatgpt-register",
+  "version": "1.0.0",
+  "description": "ChatGPT 自动注册机 — DuckDuckGo 邮箱 + 验证码平台",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "puppeteer": "^24.0.0"
+  }
+}

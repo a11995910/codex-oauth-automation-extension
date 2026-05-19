@@ -1,0 +1,8 @@
+{
+  "codePlatformBaseUrl": "https://code.youkeduo.site",
+  "codePlatformApiKey": "",
+  "parallelThreads": 1,
+  "duckProfileDir": "./profiles/duck-profile",
+  "accountsDir": "./accounts",
+  "port": 3456
+}
